@@ -7,7 +7,7 @@ services:
     plan: free                      # para producción real cámbialo a un plan de pago (el gratuito se duerme)
     buildCommand: npm install
     startCommand: node src/server.js
-    healthCheckPath: /api/salud
+    healthCheckPath: /
     envVars:
       - key: NODE_VERSION
         value: "22"
