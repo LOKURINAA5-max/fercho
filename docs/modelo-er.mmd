@@ -1,0 +1,147 @@
+erDiagram
+    USUARIOS ||--o{ TURNOS_CAJA : "abre"
+    USUARIOS |o--o{ TURNOS_CAJA : "cierra"
+    USUARIOS ||--o{ ACCESOS : "inicia sesion"
+    USUARIOS ||--o{ MOVIMIENTOS_CAJA : "registra"
+    USUARIOS ||--o{ AUDITORIA_CAJA : "genera"
+    USUARIOS ||--o{ GASTOS : "registra"
+    USUARIOS ||--o{ MOVIMIENTOS_INVENTARIO : "realiza"
+    TURNOS_CAJA ||--o{ MOVIMIENTOS_CAJA : "contiene"
+    TURNOS_CAJA ||--o{ AUDITORIA_CAJA : "audita"
+    TURNOS_CAJA ||--o{ GASTOS : "origina"
+    TURNOS_CAJA ||--o{ PEDIDOS : "crea (turno_creacion)"
+    TURNOS_CAJA ||--o{ PEDIDOS : "cobra (turno_id)"
+    GASTOS |o--o{ MOVIMIENTOS_CAJA : "retiro como gasto"
+    PEDIDOS ||--|{ PEDIDO_ITEMS : "contiene"
+    PLATOS ||--o{ PEDIDO_ITEMS : "se vende en"
+    PLATOS ||--o{ RECETAS : "lleva"
+    INSUMOS ||--o{ RECETAS : "se usa en"
+    INSUMOS ||--o{ MOVIMIENTOS_INVENTARIO : "tiene"
+    PLATOS }o..o| FOTOS : "foto (URL /foto/id)"
+    INSUMOS }o..o| FOTOS : "foto (URL /foto/id)"
+    PEDIDOS |o--o{ MOVIMIENTOS_INVENTARIO : "descuenta"
+
+    USUARIOS {
+        int id PK
+        varchar usuario UK
+        text password_hash
+        varchar rol "admin, caja, cocina"
+        bool activo
+        int intentos_fallidos
+        timestamptz bloqueado_hasta
+        text totp_secreto
+        bool totp_activo
+    }
+    ACCESOS {
+        bigint id PK
+        int usuario_id FK
+        varchar usuario_intentado
+        bool exito
+        text ip
+        timestamptz creado_en
+    }
+    TURNOS_CAJA {
+        int id PK
+        int abierto_por FK
+        int cerrado_por FK
+        numeric monto_apertura
+        timestamptz abierto_en
+        timestamptz cerrado_en
+        numeric efectivo_contado
+        numeric efectivo_esperado
+        numeric diferencia
+        bool alerta
+    }
+    MOVIMIENTOS_CAJA {
+        bigint id PK
+        int turno_id FK
+        int usuario_id FK
+        int gasto_id FK
+        varchar tipo "retiro, ingreso"
+        numeric monto
+        text motivo
+    }
+    AUDITORIA_CAJA {
+        bigint id PK
+        int turno_id FK
+        int usuario_id FK
+        varchar evento
+        jsonb detalle
+        timestamptz creado_en
+    }
+    GASTOS {
+        int id PK
+        int usuario_id FK
+        int turno_id FK
+        date fecha
+        varchar categoria
+        text descripcion
+        numeric monto
+        bool anulado
+    }
+    PEDIDOS {
+        uuid id PK
+        int numero "global, auditoria"
+        int numero_dia "reinicia por turno"
+        int turno_creacion FK
+        int turno_id FK
+        varchar tipo "mesa, domicilio, mostrador"
+        varchar estado
+        numeric total
+        varchar metodo_pago "efectivo, nequi"
+        numeric efectivo_recibido
+        numeric vueltos
+        bool pagado
+        bool confirmado
+        timestamptz creado_en
+        timestamptz pagado_en
+    }
+    PEDIDO_ITEMS {
+        int id PK
+        uuid pedido_id FK
+        int plato_id FK
+        varchar nombre "copia"
+        numeric precio_unit "copia"
+        int cantidad
+        text_array sin
+        bool listo
+    }
+    PLATOS {
+        int id PK
+        varchar nombre
+        numeric precio
+        varchar categoria
+        int orden
+        bool agotado
+        bool activo
+    }
+    RECETAS {
+        int plato_id PK, FK
+        int insumo_id PK, FK
+        numeric cantidad
+    }
+    INSUMOS {
+        int id PK
+        varchar codigo UK
+        varchar nombre
+        numeric cantidad
+        varchar unidad
+        numeric costo_unitario
+        text foto
+        bool activo
+    }
+    MOVIMIENTOS_INVENTARIO {
+        bigint id PK
+        int insumo_id FK
+        uuid pedido_id FK
+        int usuario_id FK
+        varchar tipo "entrada, salida, ajuste"
+        numeric cantidad
+        text motivo
+    }
+    FOTOS {
+        int id PK
+        varchar tipo "png, jpeg, webp"
+        bytea datos "max 300 KB"
+        timestamptz creado_en
+    }

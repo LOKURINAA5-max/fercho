@@ -1,0 +1,31 @@
+# Render "Blueprint": crea el servidor web a partir de este repositorio.
+# La base de datos NO se crea aquí: está en Neon (pega su DATABASE_URL cuando Render la pida).
+services:
+  - type: web
+    name: fercho
+    runtime: node
+    plan: free                      # para producción real cámbialo a un plan de pago (el gratuito se duerme)
+    buildCommand: npm install
+    startCommand: node src/server.js
+    healthCheckPath: /api/salud
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+      - key: TRUST_PROXY
+        value: "1"
+      - key: DATABASE_SSL
+        value: "true"
+      - key: EXIGIR_2FA
+        value: admin
+      - key: CARGAR_CATALOGO_EJEMPLO
+        value: "true"
+      - key: JWT_SECRET
+        generateValue: true         # Render inventa un secreto largo y seguro
+      - key: DATABASE_URL           # la cadena de conexión de Neon (directa, no "pooler")
+        sync: false
+      - key: ADMIN_USUARIO          # primer administrador (solo se crea si la base está vacía)
+        sync: false
+      - key: ADMIN_CLAVE            # clave temporal: bórrala de Render después del primer ingreso
+        sync: false

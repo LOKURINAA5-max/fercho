@@ -1,0 +1,55 @@
+# Despliegue en un servidor propio (VPS) con HTTPS automático. Ver DESPLIEGUE.md, opción A.
+# Variables en el archivo .env (copia de .env.example): DOMINIO, POSTGRES_PASSWORD, JWT_SECRET, DATABASE_URL, ...
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: fercho_admin
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Define POSTGRES_PASSWORD en .env}
+      POSTGRES_DB: fercho
+    volumes:
+      - dbdata:/var/lib/postgresql/data
+      - ./db/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro   # solo se ejecutan la primera vez
+      - ./db/seed.sql:/docker-entrypoint-initdb.d/02_seed.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fercho_admin -d fercho"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    # La base NO publica puertos: solo la app puede alcanzarla.
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      TRUST_PROXY: "1"
+      PORT: "3000"
+    volumes:
+      - uploads:/data/uploads
+    expose:
+      - "3000"
+
+  caddy:                       # HTTPS automático (Let's Encrypt) y redirección de http a https
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMINIO: ${DOMINIO:?Define DOMINIO en .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddydata:/data
+
+volumes:
+  dbdata:
+  uploads:
+  caddydata:
