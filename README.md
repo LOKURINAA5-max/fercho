@@ -1,3 +1,13 @@
+PROYECTO-HAMBURGUESASYPINCHOS-FERCHO
+Es un sistema POS Y KDS integrado en u n restaurante considerado mediana empresa Copyright (C) [2026] [Juan Felipe Mendez Sarmiento]
+
+Todos los derechos reservados.
+
+Queda estrictamente prohibida la copia, reproducción, distribución, modificación, comercialización o uso no autorizado de este software y su código fuente, por cualquier medio, sin el consentimiento previo y por escrito del titular de los derechos de autor.
+
+El acceso a este repositorio es confidencial y exclusivamente para los colaboradores autorizados.
+
+
 # Fercho · Sistema de pedidos, caja, cocina y contabilidad
 
 Sistema web para el restaurante **Hamburguesas y Pinchos Fercho**: los clientes piden desde el celular escaneando un QR
