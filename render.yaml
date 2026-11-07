@@ -7,7 +7,7 @@ services:
     plan: free                      # para producción real cámbialo a un plan de pago (el gratuito se duerme)
     buildCommand: npm install
     startCommand: node src/server.js
-    healthCheckPath: /
+    healthCheckPath: /                # la página de inicio (no consulta la base, así Neon gratis puede dormirse y no gasta su cuota)
     envVars:
       - key: NODE_VERSION
         value: "22"
@@ -18,7 +18,7 @@ services:
       - key: DATABASE_SSL
         value: "true"
       - key: EXIGIR_2FA
-        value: admin
+        value: ""
       - key: CARGAR_CATALOGO_EJEMPLO
         value: "true"
       - key: JWT_SECRET

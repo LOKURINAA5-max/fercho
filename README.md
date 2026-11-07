@@ -1,13 +1,3 @@
-PROYECTO-HAMBURGUESASYPINCHOS-FERCHO
-Es un sistema POS Y KDS integrado en u n restaurante considerado mediana empresa Copyright (C) [2026] [Juan Felipe Mendez Sarmiento]
-
-Todos los derechos reservados.
-
-Queda estrictamente prohibida la copia, reproducción, distribución, modificación, comercialización o uso no autorizado de este software y su código fuente, por cualquier medio, sin el consentimiento previo y por escrito del titular de los derechos de autor.
-
-El acceso a este repositorio es confidencial y exclusivamente para los colaboradores autorizados.
-
-
 # Fercho · Sistema de pedidos, caja, cocina y contabilidad
 
 Sistema web para el restaurante **Hamburguesas y Pinchos Fercho**: los clientes piden desde el celular escaneando un QR
@@ -84,7 +74,7 @@ promedio + 15 %. Marca `reponer` si quedan menos de 2 días de stock y `exceso` 
 
 ## Seguridad
 - **Sesión:** cookie `httpOnly` + `SameSite=Strict` (el navegador no entrega el token a ningún script) y protección CSRF con cabecera obligatoria. En `NODE_ENV=production` la cookie es `Secure` y se exige HTTPS; por eso en producción necesitas HTTPS de verdad.
-- **Verificación en dos pasos (TOTP):** compatible con Google/Microsoft Authenticator. Con `EXIGIR_2FA=admin` el administrador debe activarla al entrar. Incluye 8 códigos de recuperación de un solo uso, y un mismo código no sirve dos veces. El administrador puede restablecerla a otro usuario.
+- **Verificación en dos pasos (TOTP):** compatible con Google/Microsoft Authenticator. Es **opcional por defecto**: cada usuario la activa (🔐) o desactiva (🔓, con contraseña + código) cuando quiera. Con `EXIGIR_2FA=admin` el administrador debe activarla al entrar. Incluye 8 códigos de recuperación de un solo uso, y un mismo código no sirve dos veces. El administrador puede restablecerla a otro usuario.
 - **Contraseñas:** bcrypt, mínimo 10 caracteres con letras y números; bloqueo de 15 min tras 5 fallos; límite de intentos por IP.
 - **Accesos:** historial de inicios de sesión (exitosos y fallidos) y aviso en tiempo real al administrador ante cuenta bloqueada o ingreso desde red/dispositivo nuevos.
 - **Base de datos:** `scripts/crear-usuario-bd.js` crea un usuario con permisos mínimos (no puede borrar tablas, ni borrar/editar la auditoría, ni crear usuarios). Los turnos cerrados y la auditoría están protegidos incluso contra el administrador de la base.

@@ -143,7 +143,7 @@ function darSesion(req, res, u) {
   const p2 = REQ2FA.includes(u.rol) && !u.totp_activo;
   const token = jwt.sign({ id: u.id, usuario: u.usuario, rol: u.rol, ...(p2 ? { p2: true } : {}) }, SECRET, { expiresIn: '12h' });
   res.cookie(COOKIE, token, { httpOnly: true, sameSite: 'strict', secure: PROD, maxAge: 12 * 3600 * 1000, path: '/' });
-  const out = { usuario: u.usuario, rol: u.rol, totp: !!u.totp_activo, debe_configurar_2fa: p2 };
+  const out = { usuario: u.usuario, rol: u.rol, totp: !!u.totp_activo, debe_configurar_2fa: p2, exigida: REQ2FA.includes(u.rol) };
   if (req.headers['x-cliente'] === 'api') out.token = token;   // solo para scripts; el navegador usa la cookie
   return out;
 }
@@ -175,7 +175,7 @@ app.post('/api/login', limLogin, async (req, res) => {
   if (u?.bloqueado_hasta && u.bloqueado_hasta > new Date()) return res.status(429).json({ error: BLOQUEO });
   const ok = await bcrypt.compare(String(password || ''), u ? u.password_hash : DUMMY);   // mismo tiempo exista o no el usuario
   if (!u || !ok) { await fallo(req, usuario, u, 'clave'); return res.status(401).json({ error: 'Credenciales incorrectas' }); }
-  if (u.totp_activo) return res.json({ requiere_2fa: true, temp: jwt.sign({ id: u.id, fase: '2fa' }, SECRET, { expiresIn: '5m' }) });
+  if (u.totp_activo) return res.json({ requiere_2fa: true, usuario: u.usuario, temp: jwt.sign({ id: u.id, fase: '2fa' }, SECRET, { expiresIn: '5m' }) });
   await exito(req, res, u);
 });
 
@@ -194,7 +194,7 @@ app.post('/api/logout', (req, res) => { res.clearCookie(COOKIE, { path: '/' }); 
 
 app.get('/api/yo', auth(), async (req, res) => {
   const { rows: [u] } = await q('SELECT totp_activo FROM usuarios WHERE id = $1', [req.user.id]);
-  res.json({ usuario: req.user.usuario, rol: req.user.rol, totp: u.totp_activo, p2: req.p2 });
+  res.json({ usuario: req.user.usuario, rol: req.user.rol, totp: u.totp_activo, p2: req.p2, exigida: REQ2FA.includes(req.user.rol) });
 });
 
 // Activar 2FA: 1) preparar (genera la clave para el QR)  2) activar (confirma con un código y entrega códigos de recuperación)
@@ -203,7 +203,9 @@ app.post('/api/2fa/preparar', auth(), async (req, res) => {
   if (u.totp_activo) throw new HttpError(409, 'Ya tienes la verificación activa. Si perdiste el celular, pide al administrador que la restablezca');
   const secreto = b32enc(crypto.randomBytes(20));
   await q('UPDATE usuarios SET totp_secreto = $2 WHERE id = $1', [req.user.id, cifrar(secreto, LLAVE_2FA)]);
-  res.json({ secreto, uri: `otpauth://totp/${encodeURIComponent('Fercho:' + req.user.usuario)}?secret=${secreto}&issuer=Fercho&digits=6&period=30` });
+  // Cada cuenta lleva su propio nombre en el emisor y en la etiqueta: en la app aparece "Fercho · caja1", distinto de "Fercho · caja2"
+  const nombre = 'Fercho · ' + req.user.usuario;
+  res.json({ secreto, usuario: req.user.usuario, uri: `otpauth://totp/${encodeURIComponent(nombre)}:${encodeURIComponent(req.user.usuario)}?secret=${secreto}&issuer=${encodeURIComponent(nombre)}&digits=6&period=30` });
 });
 app.post('/api/2fa/activar', auth(), async (req, res) => {
   const { rows: [u] } = await q('SELECT * FROM usuarios WHERE id = $1', [req.user.id]);
@@ -213,6 +215,17 @@ app.post('/api/2fa/activar', auth(), async (req, res) => {
   const codigos = Array.from({ length: 8 }, () => crypto.randomBytes(5).toString('hex'));
   await q('UPDATE usuarios SET totp_activo = TRUE, totp_ultimo_paso = $2, totp_recuperacion = $3 WHERE id = $1', [u.id, step, codigos.map(sha)]);
   res.json({ ...darSesion(req, res, { ...u, totp_activo: true }), recuperacion: codigos });
+});
+// Desactivar la propia verificación (opcional): pide la contraseña y un código vigente. No se permite si el rol la tiene exigida por EXIGIR_2FA.
+app.post('/api/2fa/desactivar', auth(), limLogin, async (req, res) => {
+  const { rows: [u] } = await q('SELECT * FROM usuarios WHERE id = $1', [req.user.id]);
+  if (!u.totp_activo) throw bad('Tu verificación en dos pasos ya está desactivada');
+  if (REQ2FA.includes(u.rol)) throw new HttpError(403, 'El rol ' + u.rol + ' tiene la verificación exigida por la configuración del servidor (EXIGIR_2FA)');
+  const ok = await bcrypt.compare(String(req.body?.password || ''), u.password_hash);
+  if (!ok || !(await verificar2fa(u, req.body?.codigo))) { await fallo(req, u.usuario, u, 'desactivar2fa'); throw new HttpError(401, 'Contraseña o código incorrectos'); }
+  await q("UPDATE usuarios SET totp_secreto = NULL, totp_activo = FALSE, totp_recuperacion = '{}', totp_ultimo_paso = 0 WHERE id = $1", [u.id]);
+  await evento('desactivo_2fa', u.id, { por: u.usuario }, req.ip);
+  res.json({ ...darSesion(req, res, { ...u, totp_activo: false }) });
 });
 app.post('/api/usuarios/:id/reset-2fa', auth('admin'), async (req, res) => {
   const { rowCount } = await q("UPDATE usuarios SET totp_secreto = NULL, totp_activo = FALSE, totp_recuperacion = '{}', totp_ultimo_paso = 0 WHERE id = $1", [req.params.id]);

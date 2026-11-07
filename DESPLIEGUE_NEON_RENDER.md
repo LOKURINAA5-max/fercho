@@ -9,7 +9,7 @@ GitHub (código)  ──── conecta ────▶  Render (servidor)  ─�
 
 ## Antes de empezar
 - Cuenta en **github.com**, **neon.com** y **render.com** (puedes entrar con GitHub en las tres).
-- Descomprime `fercho-beta-v7.2.zip` y ubica la carpeta `fercho-backend` (la que contiene `package.json`, `src`, `db`, `public`, `render.yaml`).
+- Descomprime `fercho-beta-v7.3.zip` y ubica la carpeta `fercho-backend` (la que contiene `package.json`, `src`, `db`, `public`, `render.yaml`).
 - Dentro de esa carpeta **no debe existir** un archivo `.env` ni la carpeta `node_modules`. (El `.gitignore` ya los protege.)
 - Anota en papel: usuario y clave de administrador que quieras usar (la clave: mínimo 10 caracteres, con letras y números).
 
@@ -49,7 +49,7 @@ No crees tablas a mano: el sistema las crea solo la primera vez que arranca.
 
 **Opción B: a mano**
 1. **New +** → **Web Service** → elige el repositorio.
-2. Configura: Runtime **Node**, Build Command `npm install`, Start Command `node src/server.js`, Health Check Path `/api/salud`, plan **Free**.
+2. Configura: Runtime **Node**, Build Command `npm install`, Start Command `node src/server.js`, Health Check Path `/`, plan **Free**.
 3. Agrega estas variables de entorno:
 
 | Variable | Valor |
@@ -60,7 +60,7 @@ No crees tablas a mano: el sistema las crea solo la primera vez que arranca.
 | `DATABASE_SSL` | `true` |
 | `DATABASE_URL` | la cadena de Neon |
 | `JWT_SECRET` | texto largo aleatorio (genera uno con `node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"`) |
-| `EXIGIR_2FA` | `admin` |
+| `EXIGIR_2FA` | vacío = la verificación en dos pasos es opcional (cada usuario decide con 🔐/🔓). `admin` = obligatoria para el administrador |
 | `ADMIN_USUARIO` | tu usuario administrador |
 | `ADMIN_CLAVE` | tu clave temporal |
 | `CARGAR_CATALOGO_EJEMPLO` | `true` |
@@ -72,11 +72,11 @@ No crees tablas a mano: el sistema las crea solo la primera vez que arranca.
    - `[arranque] Administrador "juan" creado`
    - `Fercho API lista en el puerto ...`
 2. Abre la dirección `https://fercho-xxxx.onrender.com` que muestra Render. Debe cargar el menú (aparecerá **Cerrado** hasta que se abra la caja).
-3. Prueba `https://fercho-xxxx.onrender.com/api/salud`: debe responder `{"estado":"ok"}`.
+3. Prueba `https://fercho-xxxx.onrender.com/api/salud`: debe responder `{"estado":"ok"}` (esta consulta sí toca la base: úsala a mano, no para monitoreo automático en Neon gratis).
 
 ## Paso 5 · Primer ingreso y seguridad
 1. Pulsa **Personal** e ingresa con tu usuario y `ADMIN_CLAVE`.
-2. Como el administrador exige verificación en dos pasos, escanea el QR con Google Authenticator o Microsoft Authenticator y escribe el código. **Anota en papel los 8 códigos de recuperación.**
+2. (Opcional) Pulsa 🔐 para activar la verificación en dos pasos; si `EXIGIR_2FA=admin`, el sistema te la pedirá. Escanea el QR con Google Authenticator o Microsoft Authenticator y escribe el código. **Anota en papel los 8 códigos de recuperación.**
 3. En Render → **Environment**, **borra `ADMIN_CLAVE`** y guarda (el servicio se reinicia solo).
 4. En la pestaña **Usuarios** crea una cuenta de caja y otra de cocina.
 
@@ -99,7 +99,7 @@ No crees tablas a mano: el sistema las crea solo la primera vez que arranca.
 ## Detalles del plan gratuito (importante)
 | Cosa | Qué pasa | Qué hacer |
 |---|---|---|
-| Render gratis se duerme | La primera visita tras ~15 min de inactividad tarda cerca de un minuto | Abrir la página antes de la revisión. Para mantenerlo despierto puedes usar un monitor gratuito (UptimeRobot) sobre `/api/salud` cada 5 minutos |
+| Render gratis se duerme | La primera visita tras ~15 min de inactividad tarda cerca de un minuto | Abrir la página antes de la revisión. Para mantenerlo despierto usa un monitor gratuito (UptimeRobot) sobre la **página de inicio** (`https://tu-direccion.onrender.com/`) cada 5 minutos. **No uses `/api/salud` para esto**: consulta la base y mantendría Neon despierto todo el mes, agotando su cuota gratuita (100 horas de cómputo al mes) en unos 16 días |
 | Neon gratis "se suspende" | Tras unos minutos sin uso la base se duerme y despierta sola en el primer acceso (puede tardar un par de segundos) | Nada: el sistema ya espera hasta 10 s la conexión |
 | Fotos | Se guardan **dentro de la base** (límite 300 KB cada una), así que no se pierden cuando Render reinicia | Subirlas desde Inventario |
 | Límites de los planes | Los planes y cuotas gratuitas cambian | Revísalos en las páginas de precios de Render y Neon |
