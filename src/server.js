@@ -108,6 +108,7 @@ if (process.env.NODE_ENV === 'production')   // detrás de un proxy: si el clien
   app.use((req, res, next) => (req.headers['x-forwarded-proto'] === 'http'
     ? res.redirect(308, 'https://' + req.headers.host + req.originalUrl) : next()));
 app.use(helmet({
+  referrerPolicy: { policy: 'strict-origin-when-cross-origin' },   // el servicio de mapas exige saber desde qué sitio se piden las imágenes
   contentSecurityPolicy: {
     directives: {
       scriptSrc: ["'self'", "'unsafe-inline'", 'https://cdnjs.cloudflare.com'],
@@ -317,8 +318,8 @@ app.post('/api/pedidos', rateLimit({ windowMs: 10 * 60 * 1000, limit: Number(pro
     const byId = await K.platosDisponibles(c, lines);
     let cot = { km: null, costo: 0 }, pt = null;
     if (tipo === 'domicilio') {   // el servidor calcula el domicilio; el personal puede fijar el valor a mano
-      pt = DOM.punto(lat, lng);
       const cfg = DOM.config(await K.ajustes(c));
+      pt = cfg.ubicacion ? DOM.punto(lat, lng) : null;   // con la ubicación apagada solo se usa la dirección escrita
       const manual = esStaff && costo_domicilio !== undefined && costo_domicilio !== null && costo_domicilio !== '' && !complemento_de;
       if (manual) {
         const v = Number(costo_domicilio);
@@ -352,7 +353,7 @@ app.post('/api/pedidos', rateLimit({ windowMs: 10 * 60 * 1000, limit: Number(pro
 /* ---------- Domicilios: configuración pública, cotización y cambio manual del valor ---------- */
 app.get('/api/domicilio/config', async (req, res) => {
   const cfg = DOM.config(await K.ajustes(pool));
-  res.json({ modo: cfg.modo, fija: cfg.fija, base: cfg.base, km_incluidos: cfg.km_incluidos, por_km: cfg.por_km, km_max: cfg.km_max, local: cfg.local });
+  res.json({ modo: cfg.modo, fija: cfg.fija, base: cfg.base, km_incluidos: cfg.km_incluidos, por_km: cfg.por_km, km_max: cfg.km_max, local: cfg.local, ubicacion: cfg.ubicacion, nav: cfg.nav });
 });
 app.post('/api/domicilio/cotizar', rateLimit({ windowMs: 60 * 1000, limit: 60 }), async (req, res) => {
   const cfg = DOM.config(await K.ajustes(pool)), pt = DOM.punto(req.body?.lat, req.body?.lng);

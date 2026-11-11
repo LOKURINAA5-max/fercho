@@ -79,10 +79,16 @@ const minis=l=>l.map(p=>{const n=cart.filter(c=>c.plato_id===p.id).reduce((a,c)=
 function cartMas(){const cs=cats(),q=cartQ.trim().toLowerCase(),sel=cartCat>0?cs[cartCat-1]:null;$('#cml').innerHTML=minis(M.filter(p=>!p.agotado&&(!sel||p.categoria===sel)&&(!q||p.nombre.toLowerCase().includes(q))).slice(0,40))}
 /* ---------- Domicilio: costo y ubicación ---------- */
 const domFee=t=>{if(!DC||DC.modo==='ninguno')return 0;if(DC.modo==='fija')return DC.fija;return t.dcosto==null?null:t.dcosto};
-const mapsUrl=p=>p.lat!=null&&p.lat!==''?`https://www.google.com/maps/search/?api=1&query=${p.lat},${p.lng}`:`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent((p.direccion||p.dir||'')+', Bucaramanga, Santander, Colombia')}`;
-function locBloque(t,nm){const km=DC&&DC.modo==='km';
- return t.lat?`<div class="recibo" style="text-align:left">✔ <b>Ubicación marcada</b>${t.km!=null?` · a unos <b>${t.km} km</b>`:''} · <a href="https://www.google.com/maps/search/?api=1&query=${t.lat},${t.lng}" target="_blank" rel="noopener">ver en Maps</a><div class="row" style="margin-top:6px"><button class="btn sm ghost" onclick="pickLoc('${nm}')">Cambiar</button><button class="btn sm ghost" onclick="quitaLoc('${nm}')">Quitar</button></div></div>`
- :`<div class="row"><button class="btn ghost grow" onclick="gpsLoc('${nm}')">📍 Usar mi ubicación</button><button class="btn ghost grow" onclick="pickLoc('${nm}')">🗺 Marcar en el mapa</button></div><p class="mut" style="margin:4px 0">${km?'<b>Necesaria</b> para calcular el domicilio. ':''}Así el domiciliario llega sin perderse.</p>`}
+/* Enlaces para llevar al domiciliario: Waze (tráfico en vivo) y/o Google Maps, según lo que elija el administrador */
+const dirTxt=p=>encodeURIComponent((p.direccion||p.dir||'')+', Bucaramanga, Santander, Colombia');
+const conPunto=p=>p.lat!=null&&p.lat!=='';
+const wazeUrl=p=>conPunto(p)?`https://waze.com/ul?ll=${p.lat},${p.lng}&navigate=yes`:`https://waze.com/ul?q=${dirTxt(p)}&navigate=yes`;
+const gmapsUrl=p=>conPunto(p)?`https://www.google.com/maps/search/?api=1&query=${p.lat},${p.lng}`:`https://www.google.com/maps/search/?api=1&query=${dirTxt(p)}`;
+const navApps=()=>{const n=(DC&&DC.nav)||'waze';return n==='ambas'?[['Waze',wazeUrl],['Maps',gmapsUrl]]:n==='google'?[['Maps',gmapsUrl]]:[['Waze',wazeUrl]]};
+const mapsUrl=p=>navApps()[0][1](p);
+function locBloque(t,nm){if(!DC||DC.ubicacion===false)return '';const km=DC.modo==='km';
+ return t.lat?`<div class="recibo" style="text-align:left">✔ <b>Ubicación marcada</b>${t.km!=null?` · a unos <b>${t.km} km</b>`:''}<div class="row" style="margin-top:6px"><button class="btn sm ghost" onclick="pickLoc('${nm}')">Ver o cambiar en el mapa</button><button class="btn sm ghost" onclick="quitaLoc('${nm}')">Quitar</button></div></div>`
+ :`<div class="row"><button class="btn ghost grow" onclick="gpsLoc('${nm}')">📍 Usar mi ubicación</button><button class="btn ghost grow" onclick="pickLoc('${nm}')">🗺 Marcar en el mapa</button></div><p class="mut" style="margin:4px 0">${km?'<b>Necesaria</b> para calcular el domicilio. ':'Opcional. '}Así el domiciliario llega sin perderse.</p>`}
 function domTot(t,sub){if(!DC||DC.modo==='ninguno')return `<div class="row between"><span>Total</span><span class="k">${money(sub)}</span></div><div class="mut">El valor del domicilio te lo confirma el local.</div>`;const f=domFee(t);
  return `<div class="row between mut"><span>Productos</span><span>${money(sub)}</span></div><div class="row between"><span>🛵 Domicilio</span><b>${f==null?'—':money(f)}</b></div>${f==null?'<div class="mut">Marca tu ubicación para ver el valor.</div>':''}<div class="row between" style="margin-top:6px"><span>Total</span><span class="k">${money(sub+(f||0))}</span></div>`}
 function cartM(){const sc=document.querySelector('#modal .box')?.scrollTop||0;_cartM();const b=document.querySelector('#modal .box');if(b)b.scrollTop=sc}
@@ -102,7 +108,7 @@ function _cartM(){if(!cart.length){closeM();return}const t=cartTotal(),nq=!!C.ne
 async function send(){if(sending)return;sending=true;try{
  const comp=!!D.mioComp&&!!mio;
  if(!comp&&F.tipo==='domicilio'){if(!(F.cli&&F.tel&&F.dir))throw new Error('Completa nombre, teléfono y dirección');if(DC&&DC.modo==='km'&&!F.lat)throw new Error('Marca tu ubicación para calcular el domicilio')}
- const body=comp?{complemento_de:mio,metodo_pago:F.pago==='nequi'?'efectivo':F.pago,items:cart}:{tipo:F.tipo,mesa:F.mesa,cliente:F.cli,telefono:F.tel,direccion:F.dir,referencia:F.refd,lat:F.tipo==='domicilio'?F.lat:undefined,lng:F.tipo==='domicilio'?F.lng:undefined,metodo_pago:F.pago,referencia_pago:F.ref,items:cart};
+ const body=comp?{complemento_de:mio,metodo_pago:F.pago==='nequi'?'efectivo':F.pago,items:cart}:{tipo:F.tipo,mesa:F.mesa,cliente:F.cli,telefono:F.tel,direccion:F.dir,referencia:F.refd,lat:F.tipo==='domicilio'&&DC&&DC.ubicacion!==false?F.lat:undefined,lng:F.tipo==='domicilio'&&DC&&DC.ubicacion!==false?F.lng:undefined,metodo_pago:F.pago,referencia_pago:F.ref,items:cart};
  const r=await api('POST','/pedidos',body);
  if(!comp){mio=r.id;ls('mio',mio);ls('mio_fin',null)}ls('mio_items',JSON.stringify(cart));D.mioComp=false;cart=[];F.ref='';closeM();
  if(staff()){toast(`Pedido #${r.numero} creado`);view='caja'}else view='mio';render()}catch(e){fail(e)}finally{sending=false}}

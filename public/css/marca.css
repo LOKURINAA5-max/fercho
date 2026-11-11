@@ -286,3 +286,5 @@ body::before{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;ba
 .pcard{content-visibility:auto;contain-intrinsic-size:auto 270px;box-shadow:0 3px 10px #0006}
 .kcard,.ocard,.card{contain:layout style}
 .pcard{transition:border-color .12s}.pcard:hover{transform:none}
+
+.seg button:disabled{opacity:.35;cursor:not-allowed}

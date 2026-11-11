@@ -21,7 +21,7 @@ async function pickMap(ini,titulo,boton,cb,cancel){await libMapa();
  _mp={cb,cancel,pt:ini?{lat:ini.lat,lng:ini.lng}:null,m:null,k:null};
  if(typeof L==='undefined'){$('#mapa').innerHTML='<div class="vacio mut">No se pudo cargar el mapa. Usa «📍 Mi ubicación».</div>';return}
  const c=ini||BGA,m=L.map('mapa',{zoomControl:true}).setView([c.lat,c.lng],ini?17:14);_mp.m=m;
- L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap'}).addTo(m);
+ let malas=0;L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap',referrerPolicy:'strict-origin-when-cross-origin'}).on('tileerror',()=>{if(++malas===4){const e=$('#mapaTx');if(e)e.innerHTML='<span class="sin">El mapa no cargó bien.</span> Igual puedes usar «📍 Mi ubicación» y confirmar.'}}).addTo(m);
  const icon=L.divIcon({className:'',html:'<div style="font-size:38px;line-height:38px;transform:translate(-50%,-100%);filter:drop-shadow(0 2px 3px #000a)">📍</div>',iconSize:[0,0]});
  const poner=(la,ln)=>{_mp.pt={lat:la,lng:ln};if(_mp.k)_mp.k.setLatLng([la,ln]);else{_mp.k=L.marker([la,ln],{icon,draggable:true}).addTo(m);_mp.k.on('dragend',()=>{const q=_mp.k.getLatLng();_mp.pt={lat:q.lat,lng:q.lng};txt()})}$('#mapaOk').disabled=false;txt()};
  const txt=()=>{const e=$('#mapaTx');if(e&&_mp.pt)e.innerHTML='Ubicación elegida ✔ <span class="mut">(puedes arrastrar el pin para ajustarla)</span>'};

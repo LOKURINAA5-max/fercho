@@ -134,3 +134,9 @@ Archivo nuevo de base de datos: `db/migracion_10_comandas.sql` (se aplica sola).
 - El mapa y los códigos QR se cargan **solo cuando se usan** (antes en cada visita).
 - Menos trabajo gráfico en tablets y celulares modestos: fondo fijo sin repintado al desplazar, sin desenfoque en las ventanas, tarjetas fuera de pantalla no se dibujan.
 - Logo y librerías quedan guardados en el navegador. Índice nuevo para la lista de pedidos abiertos (`db/migracion_11_rendimiento.sql`).
+
+## 9.2 · Mapa, navegación y ubicación opcional
+- **Arreglado el mapa bloqueado** («Access blocked» de OpenStreetMap): el sistema ocultaba desde qué sitio se pedían las imágenes y OpenStreetMap lo exige. Si aun así el mapa no carga, la ventana lo avisa y deja usar «📍 Mi ubicación».
+- **Navegación del domiciliario con Waze** (tráfico en vivo) por defecto. En Ajustes → Domicilios se elige Waze, Google Maps o las dos. Con ubicación marcada lleva al punto exacto; sin ella busca la dirección escrita en Bucaramanga.
+- **Interruptor «Pedir ubicación en el mapa»**: apagado, el cliente y la caja solo escriben dirección y barrio. El cobro por kilómetro necesita la ubicación, así que el sistema no deja apagarla mientras ese cobro esté activo.
+- Archivo nuevo de base de datos: `db/migracion_12_navegacion.sql` (se aplica sola).

@@ -12,7 +12,7 @@ export function montarV8({ app, q, pool, tx, auth, notify, audit, upload, guarda
   /* ---------- Ajustes (interruptores del administrador) ---------- */
   const AJ = {
     despacho_activo: 'bool', pantalla_despacho: 'bool', anuncios_barra: 'bool', anuncios_carrusel: 'bool', diario_con_inversion: 'bool', alerta_espera_min: 'min',
-    modo_cocina: 'cocina', dom_modo: 'modo', dom_fija: 'plata', dom_base: 'plata', dom_por_km: 'plata', dom_km_incluidos: 'km', dom_km_max: 'km', dom_factor_ruta: 'factor', local_lat: 'coord', local_lng: 'coord',
+    modo_cocina: 'cocina', dom_ubicacion: 'bool', nav_app: 'nav', dom_modo: 'modo', dom_fija: 'plata', dom_base: 'plata', dom_por_km: 'plata', dom_km_incluidos: 'km', dom_km_max: 'km', dom_factor_ruta: 'factor', local_lat: 'coord', local_lng: 'coord',
   };
   app.get('/api/ajustes', auth('admin'), async (req, res) => res.json(await K.ajustes(pool)));
   app.put('/api/ajustes', auth('admin'), async (req, res) => {
@@ -22,13 +22,21 @@ export function montarV8({ app, q, pool, tx, auth, notify, audit, upload, guarda
       for (const k of claves) {
         if (!AJ[k]) throw bad('Ajuste desconocido: ' + k);
         let v = b[k];
-        if (AJ[k] === 'bool') { if (typeof v !== 'boolean') throw bad('Valor inválido'); v = String(v); }
+        if (AJ[k] === 'bool') {
+          if (typeof v !== 'boolean') throw bad('Valor inválido');
+          if (k === 'dom_ubicacion' && v === false && b.dom_modo === undefined && (await K.ajuste(c, 'dom_modo')) === 'km') throw bad('El cobro por kilómetro necesita la ubicación. Cambia primero a «Tarifa fija» o «Sin cobro»');
+          v = String(v);
+        }
         else if (AJ[k] === 'cocina') {
           if (!['pantallas', 'impresion'].includes(v)) throw bad('Forma de cocina inválida');
           const { rows: [x] } = await c.query("SELECT count(*)::int AS n FROM pedidos WHERE confirmado AND estado IN ('espera','preparacion')");
           if (x.n > 0 && (await K.ajuste(c, 'modo_cocina')) !== v) throw new HttpError(409, `Hay ${x.n} pedido(s) en cocina. Termínalos antes de cambiar la forma de trabajo`);
         }
-        else if (AJ[k] === 'modo') { if (!['ninguno', 'fija', 'km'].includes(v)) throw bad('Modo de domicilio inválido'); }
+        else if (AJ[k] === 'nav') { if (!['waze', 'google', 'ambas'].includes(v)) throw bad('App de navegación inválida'); }
+        else if (AJ[k] === 'modo') {
+          if (!['ninguno', 'fija', 'km'].includes(v)) throw bad('Modo de domicilio inválido');
+          if (v === 'km' && (b.dom_ubicacion === false || (b.dom_ubicacion === undefined && (await K.ajuste(c, 'dom_ubicacion')) === 'false'))) throw bad('El cobro por kilómetro necesita la ubicación del cliente. Enciende primero «Pedir ubicación en el mapa»');
+        }
         else if (AJ[k] === 'plata') { v = Number(v); if (!Number.isInteger(v) || v < 0 || v > 500000) throw bad('El valor debe ser entre $0 y $500.000'); v = String(v); }
         else if (AJ[k] === 'km') { v = Number(v); if (!(v >= 0 && v <= 200)) throw bad('Los kilómetros deben estar entre 0 y 200'); v = String(v); }
         else if (AJ[k] === 'factor') { v = Number(v); if (!(v >= 1 && v <= 3)) throw bad('El factor de ruta debe estar entre 1 y 3'); v = String(v); }

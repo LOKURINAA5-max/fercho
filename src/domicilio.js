@@ -12,6 +12,7 @@ const n = (v, d) => { const x = Number(v); return Number.isFinite(x) ? x : d; };
 export function config(aj) {
   const lat = aj.local_lat === '' || aj.local_lat == null ? null : Number(aj.local_lat), lng = aj.local_lng === '' || aj.local_lng == null ? null : Number(aj.local_lng);
   return {
+    ubicacion: aj.dom_ubicacion !== 'false', nav: ['waze', 'google', 'ambas'].includes(aj.nav_app) ? aj.nav_app : 'waze',
     modo: ['ninguno', 'fija', 'km'].includes(aj.dom_modo) ? aj.dom_modo : 'fija', fija: n(aj.dom_fija, 0), base: n(aj.dom_base, 0),
     km_incluidos: n(aj.dom_km_incluidos, 0), por_km: n(aj.dom_por_km, 0), km_max: n(aj.dom_km_max, 0), factor: Math.max(1, n(aj.dom_factor_ruta, 1.3)),
     local: lat !== null && lng !== null && enColombia(lat, lng) ? { lat, lng } : null,
