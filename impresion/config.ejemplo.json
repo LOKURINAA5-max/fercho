@@ -1,0 +1,12 @@
+{
+  "servidor": "https://TU-SITIO.onrender.com",
+  "usuario": "impresora",
+  "clave": "LA-CLAVE-DE-ESE-USUARIO",
+  "columnas": 42,
+  "cada_segundos": 3,
+  "pitar": true,
+  "impresoras": {
+    "Plancha": { "host": "192.168.1.50", "port": 9100 },
+    "Asador":  { "host": "192.168.1.51", "port": 9100 }
+  }
+}

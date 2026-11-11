@@ -10,6 +10,10 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { b32enc, totpCheck, sha, llaveDe, cifrar, descifrar } from './totp.js';
 import { arrancar } from './arranque.js';
+import { HttpError, bad } from './errores.js';
+import * as K from './cocina.js';
+import { montarV8 } from './v8.js';
+import * as DOM from './domicilio.js';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
@@ -35,8 +39,6 @@ const pool = new pg.Pool({
 pool.on('error', (e) => console.error('Error en la conexión a la base:', e.message));
 const q = (sql, params) => pool.query(sql, params);
 
-class HttpError extends Error { constructor(status, message) { super(message); this.status = status; } }
-const bad = (m) => new HttpError(400, m);
 
 /* ---------- Tiempo real: avisa a las pantallas que algo cambió (SSE) ---------- */
 const clientes = new Set();
@@ -100,7 +102,7 @@ app.use(helmet({
     directives: {
       scriptSrc: ["'self'", "'unsafe-inline'", 'https://cdnjs.cloudflare.com'],
       scriptSrcAttr: ["'unsafe-inline'"],
-      imgSrc: ["'self'", 'data:', 'blob:'],
+      imgSrc: ["'self'", 'data:', 'blob:', 'https://tile.openstreetmap.org', 'https://*.tile.openstreetmap.org'],
       'upgrade-insecure-requests': process.env.NODE_ENV === 'production' ? [] : null,
     },
   },
@@ -242,8 +244,12 @@ app.get('/api/salud', async (req, res) => {   // para monitoreo (UptimeRobot, Re
 
 app.get('/api/config', async (req, res) => {
   const { rowCount } = await q('SELECT 1 FROM turnos_caja WHERE cerrado_en IS NULL');
+  const aj = await K.ajustes(pool);
   res.json({ nequi_numero: process.env.NEQUI_NUMERO || null, nequi_nombre: process.env.NEQUI_NOMBRE || null,
-    abierto: rowCount > 0, meta_min: Number(process.env.COCINA_META_MIN || 10), alerta_min: Number(process.env.COCINA_ALERTA_MIN || 15) });
+    abierto: rowCount > 0, meta_min: Number(process.env.COCINA_META_MIN || 10), alerta_min: Number(process.env.COCINA_ALERTA_MIN || 15),
+    anuncios_barra: aj.anuncios_barra === 'true', anuncios_carrusel: aj.anuncios_carrusel === 'true',
+    despacho_activo: aj.despacho_activo === 'true', pantalla_despacho: aj.pantalla_despacho === 'true', modo_cocina: aj.modo_cocina === 'impresion' ? 'impresion' : 'pantallas',
+    diario_con_inversion: aj.diario_con_inversion === 'true', alerta_espera_min: Number(aj.alerta_espera_min || 3) });
 });
 
 app.get('/api/eventos', (req, res) => {
@@ -256,167 +262,194 @@ app.get('/api/eventos', (req, res) => {
 
 app.get('/api/menu', async (req, res) => {
   const { rows } = await q(`
-    SELECT p.id, p.nombre, p.descripcion, p.precio, p.foto, p.emoji, p.agotado, p.categoria, p.orden,
-           coalesce(array_agg(i.nombre ORDER BY i.nombre) FILTER (WHERE i.id IS NOT NULL), '{}') AS ingredientes
+    SELECT p.id, p.nombre, p.descripcion, p.precio, p.foto, p.emoji, p.agotado, p.categoria, p.orden, p.es_promo, p.promo_hasta,
+           coalesce(array_agg(i.nombre ORDER BY i.nombre) FILTER (WHERE i.id IS NOT NULL), '{}') AS ingredientes,
+           coalesce((SELECT json_agg(json_build_object('id', g.id, 'nombre', g.nombre, 'obligatorio', g.obligatorio, 'multiple', g.multiple,
+               'opciones', (SELECT coalesce(json_agg(json_build_object('id', o.id, 'nombre', o.nombre, 'precio_extra', o.precio_extra::bigint) ORDER BY o.orden, o.id), '[]') FROM opciones o WHERE o.grupo_id = g.id)) ORDER BY g.orden, g.id)
+             FROM opcion_grupos g WHERE g.plato_id = p.id), '[]') AS grupos
     FROM platos p
     LEFT JOIN recetas r ON r.plato_id = p.id
     LEFT JOIN insumos i ON i.id = r.insumo_id
-    WHERE p.activo GROUP BY p.id ORDER BY p.orden, p.id`);
+    WHERE p.activo
+      AND (p.dias IS NULL OR cardinality(p.dias) = 0 OR extract(dow FROM now())::int = ANY(p.dias))
+      AND (NOT p.es_promo OR ((p.promo_desde IS NULL OR p.promo_desde <= now()) AND (p.promo_hasta IS NULL OR p.promo_hasta >= now())))
+    GROUP BY p.id ORDER BY p.es_promo DESC, p.orden, p.id`);
   res.json(rows);
 });
 
 // Crear pedido (cliente por QR, o personal desde caja). El total se calcula SIEMPRE en el servidor.
 app.post('/api/pedidos', rateLimit({ windowMs: 10 * 60 * 1000, limit: Number(process.env.LIMITE_PEDIDOS_10MIN || 120) }), async (req, res) => {
-  const { tipo, mesa, cliente, telefono, direccion, items, metodo_pago = 'efectivo', referencia_pago } = req.body || {};
-  if (!['mesa', 'domicilio', 'mostrador'].includes(tipo)) throw bad('Tipo de pedido inválido');
-  if (tipo === 'mostrador') {
-    const t = userFrom(req);
-    const { rowCount } = t ? await q("SELECT 1 FROM usuarios WHERE id = $1 AND activo AND rol IN ('caja','admin')", [t.id]) : { rowCount: 0 };
-    if (!rowCount) throw new HttpError(403, 'Solo el personal puede crear pedidos de mostrador');
-  }
-  if (!['efectivo', 'nequi'].includes(metodo_pago)) throw bad('Método de pago inválido');
-  if (metodo_pago === 'nequi') {
-    if (!process.env.NEQUI_NUMERO) throw bad('El pago por Nequi no está habilitado');
-    if (!/^[A-Za-z0-9-]{4,30}$/.test(String(referencia_pago || ''))) throw bad('Escribe la referencia de tu pago Nequi (4 a 30 letras o números)');
-  }
-  if (tipo === 'mesa' && !String(mesa || '').trim()) throw bad('Indica el número de mesa');
-  if (tipo === 'domicilio' && !(cliente && telefono && direccion)) throw bad('Completa nombre, teléfono y dirección');
-  if (!Array.isArray(items) || !items.length || items.length > 50) throw bad('El pedido no tiene productos');
-  const lines = items.map((i) => {
-    const plato_id = Number(i?.plato_id), cantidad = Number(i?.cantidad);
-    if (!Number.isInteger(plato_id) || !Number.isInteger(cantidad) || cantidad < 1 || cantidad > 50) throw bad('Producto inválido');
-    const sin = Array.isArray(i.sin) ? i.sin.slice(0, 20).map((s) => String(s).slice(0, 80)) : [];
-    return { plato_id, cantidad, sin, nota: String(i.nota || '').slice(0, 200) };
-  });
-
+  let { tipo, mesa, cliente, telefono, direccion, items, metodo_pago = 'efectivo', referencia_pago, complemento_de, lat, lng, referencia, costo_domicilio } = req.body || {};
+  const t = userFrom(req);
+  const { rowCount: esStaff } = t ? await q("SELECT 1 FROM usuarios WHERE id = $1 AND activo AND rol IN ('caja','admin')", [t.id]) : { rowCount: 0 };
+  const lines = K.lineasDe(items, !!esStaff);
   const c = await pool.connect();
   try {
     await c.query('BEGIN');
-    const ids = [...new Set(lines.map((l) => l.plato_id))];
-    const { rows: platos } = await c.query(
-      'SELECT id, nombre, precio FROM platos WHERE id = ANY($1) AND activo AND NOT agotado', [ids]);
-    if (platos.length !== ids.length) throw bad('Algún producto no está disponible');
-    const byId = new Map(platos.map((p) => [p.id, p]));
-    const total = lines.reduce((a, l) => a + byId.get(l.plato_id).precio * l.cantidad, 0);
+    let padre = null;
+    if (complemento_de) {   // "pedir algo más" cuando el pedido original ya está en preparación: pedido nuevo, ligado al anterior
+      ({ rows: [padre] } = await c.query('SELECT * FROM pedidos WHERE id = $1', [complemento_de]));
+      if (!padre || padre.estado === 'cancelado') throw bad('El pedido original no existe o fue cancelado');
+      ({ tipo, mesa, cliente, telefono, direccion, lat, lng, referencia } = padre);
+      costo_domicilio = 0;   // el domicilio ya se cobró en el pedido original
+      complemento_de = padre.complemento_de || padre.id;   // siempre apunta al pedido principal
+    }
+    if (!['mesa', 'domicilio', 'mostrador'].includes(tipo)) throw bad('Tipo de pedido inválido');
+    if (tipo === 'mostrador' && !esStaff) throw new HttpError(403, 'Solo el personal puede crear pedidos de mostrador');
+    if (!['efectivo', 'nequi'].includes(metodo_pago)) throw bad('Método de pago inválido');
+    if (metodo_pago === 'nequi') {
+      if (!process.env.NEQUI_NUMERO) throw bad('El pago por Nequi no está habilitado');
+      if (!/^[A-Za-z0-9-]{4,30}$/.test(String(referencia_pago || ''))) throw bad('Escribe la referencia de tu pago Nequi (4 a 30 letras o números)');
+    }
+    if (tipo === 'mesa' && !String(mesa || '').trim()) throw bad('Indica el número de mesa');
+    if (tipo === 'domicilio' && !(cliente && telefono && direccion)) throw bad('Completa nombre, teléfono y dirección');
+    const byId = await K.platosDisponibles(c, lines);
+    let cot = { km: null, costo: 0 }, pt = null;
+    if (tipo === 'domicilio') {   // el servidor calcula el domicilio; el personal puede fijar el valor a mano
+      pt = DOM.punto(lat, lng);
+      const cfg = DOM.config(await K.ajustes(c));
+      const manual = esStaff && costo_domicilio !== undefined && costo_domicilio !== null && costo_domicilio !== '' && !complemento_de;
+      if (manual) {
+        const v = Number(costo_domicilio);
+        if (!Number.isInteger(v) || v < 0 || v > 500000) throw bad('Valor de domicilio inválido');
+        cot = { km: pt && cfg.local ? DOM.cotizar({ ...cfg, modo: 'ninguno' }, pt).km : null, costo: v };
+      } else if (!complemento_de) cot = DOM.cotizar(cfg, pt);
+    } else { lat = lng = null; }
     // El número (#1, #2...) reinicia en cada turno de caja. FOR UPDATE ordena las creaciones y el cierre de caja.
-    const { rows: [t] } = await c.query('SELECT id FROM turnos_caja WHERE cerrado_en IS NULL FOR UPDATE');
-    if (!t) throw new HttpError(409, 'El local está cerrado por ahora. Inténtalo cuando abran la caja');
-    const { rows: [{ n }] } = await c.query('SELECT coalesce(max(numero_dia), 0) + 1 AS n FROM pedidos WHERE turno_creacion = $1', [t.id]);
+    const { rows: [tu] } = await c.query('SELECT id FROM turnos_caja WHERE cerrado_en IS NULL FOR UPDATE');
+    if (!tu) throw new HttpError(409, 'El local está cerrado por ahora. Inténtalo cuando abran la caja');
+    const { rows: [{ n }] } = await c.query('SELECT coalesce(max(numero_dia), 0) + 1 AS n FROM pedidos WHERE turno_creacion = $1', [tu.id]);
     const conf = !(CONFIRMAR && tipo !== 'mostrador');
     const { rows: [p] } = await c.query(
       `INSERT INTO pedidos (tipo, mesa, cliente, telefono, direccion, total, metodo_pago, referencia_pago, confirmado,
-                            turno_creacion, numero_dia, confirmado_en)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,CASE WHEN $9 THEN now() END) RETURNING id, numero_dia AS numero`,
+                            turno_creacion, numero_dia, confirmado_en, complemento_de, lat, lng, distancia_km, referencia, costo_domicilio)
+       VALUES ($1,$2,$3,$4,$5,0,$6,$7,$8,$9,$10,CASE WHEN $8 THEN now() END,$11,$12,$13,$14,$15,$16) RETURNING id, numero_dia AS numero`,
       [tipo, tipo === 'mesa' ? String(mesa).slice(0, 10) : null,
        cliente ? String(cliente).slice(0, 80) : null, telefono ? String(telefono).slice(0, 20) : null,
-       direccion ? String(direccion).slice(0, 300) : null, total,
-       metodo_pago, metodo_pago === 'nequi' ? String(referencia_pago) : null, conf, t.id, n]);
-    for (const l of lines) {
-      const pl = byId.get(l.plato_id);
-      await c.query(
-        `INSERT INTO pedido_items (pedido_id, plato_id, nombre, precio_unit, cantidad, sin, nota)
-         VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-        [p.id, pl.id, pl.nombre, pl.precio, l.cantidad, l.sin, l.nota || null]);
-    }
+       direccion ? String(direccion).slice(0, 300) : null,
+       metodo_pago, metodo_pago === 'nequi' ? String(referencia_pago) : null, conf, tu.id, n, complemento_de || null,
+       pt ? pt.lat : null, pt ? pt.lng : null, cot.km, referencia ? String(referencia).slice(0, 200) : null, cot.costo]);
+    const total = await K.insertarItems(c, p.id, lines, byId);
+    await c.query('UPDATE pedidos SET total = $2 WHERE id = $1', [p.id, total + cot.costo]);
+    if (conf) await K.encolar(c, p.id, esStaff ? t.id : null);
     await c.query('COMMIT');
     notify();
-    res.status(201).json({ id: p.id, numero: p.numero, total });
+    res.status(201).json({ id: p.id, numero: p.numero, total: total + cot.costo, domicilio: cot.costo, km: cot.km });
   } catch (e) { await c.query('ROLLBACK'); throw e; } finally { c.release(); }
 });
 
-// Seguimiento público por el cliente (el id es un UUID imposible de adivinar)
-app.get('/api/pedidos/:id/estado', async (req, res) => {
-  const { rows: [p] } = await q('SELECT coalesce(numero_dia, numero) AS numero, tipo, estado, confirmado, creado_en, preparacion_en, listo_en FROM pedidos WHERE id = $1', [req.params.id]);
-  if (!p) throw new HttpError(404, 'Pedido no encontrado');
-  res.json(p);
+/* ---------- Domicilios: configuración pública, cotización y cambio manual del valor ---------- */
+app.get('/api/domicilio/config', async (req, res) => {
+  const cfg = DOM.config(await K.ajustes(pool));
+  res.json({ modo: cfg.modo, fija: cfg.fija, base: cfg.base, km_incluidos: cfg.km_incluidos, por_km: cfg.por_km, km_max: cfg.km_max, local: cfg.local });
 });
-
-/* ---------- Cocina / Caja ---------- */
-const FLOW = (p) => (p.tipo === 'domicilio'
-  ? ['espera', 'preparacion', 'listo', 'entregando', 'entregado']
-  : ['espera', 'preparacion', 'listo', 'entregado']);
-
-app.get('/api/pedidos', auth('cocina', 'caja', 'admin'), async (req, res) => {
-  const where = req.user.rol === 'cocina'
-    ? "p.estado IN ('espera','preparacion') AND p.confirmado AND p.creado_en > now() - interval '48 hours'"
-    : "p.estado <> 'cancelado' AND NOT (p.estado = 'entregado' AND p.pagado) AND (p.creado_en > now() - interval '48 hours' OR (p.estado = 'entregado' AND NOT p.pagado))";
-  const { rows } = await q(`
-    SELECT p.*, coalesce(p.numero_dia, p.numero) AS numero,
-           coalesce(json_agg(json_build_object('id', i.id, 'nombre', i.nombre, 'cantidad', i.cantidad,
-             'precio_unit', i.precio_unit, 'sin', i.sin, 'nota', i.nota, 'listo', i.listo) ORDER BY i.id)
-             FILTER (WHERE i.id IS NOT NULL), '[]') AS items
-    FROM pedidos p LEFT JOIN pedido_items i ON i.pedido_id = p.id
-    WHERE ${where} GROUP BY p.id ORDER BY coalesce(p.confirmado_en, p.creado_en) LIMIT 300`);
-  res.json(rows);
+app.post('/api/domicilio/cotizar', rateLimit({ windowMs: 60 * 1000, limit: 60 }), async (req, res) => {
+  const cfg = DOM.config(await K.ajustes(pool)), pt = DOM.punto(req.body?.lat, req.body?.lng);
+  res.json({ ...DOM.cotizar(cfg, pt), modo: cfg.modo });
 });
-
-async function descontarInventario(c, pedidoId, usuarioId) {
-  const { rows } = await c.query(`
-    SELECT r.insumo_id, sum(r.cantidad * it.cantidad) AS qty
-    FROM pedido_items it
-    JOIN recetas r ON r.plato_id = it.plato_id
-    JOIN insumos s ON s.id = r.insumo_id
-    WHERE it.pedido_id = $1 AND NOT (s.nombre = ANY(it.sin))
-    GROUP BY r.insumo_id`, [pedidoId]);
-  for (const r of rows) {
-    await c.query(
-      `INSERT INTO movimientos_inventario (insumo_id, tipo, cantidad, motivo, pedido_id, usuario_id)
-       VALUES ($1, 'salida', $2, 'Pedido en preparación', $3, $4)`, [r.insumo_id, r.qty, pedidoId, usuarioId]);
-    await c.query('UPDATE insumos SET cantidad = GREATEST(cantidad - $2, 0) WHERE id = $1', [r.insumo_id, r.qty]);
-  }
-}
-
-app.patch('/api/pedidos/:id/avanzar', auth('cocina', 'caja', 'admin'), async (req, res) => {
-  const c = await pool.connect();
-  try {
-    await c.query('BEGIN');
-    const { rows: [p] } = await c.query('SELECT * FROM pedidos WHERE id = $1 FOR UPDATE', [req.params.id]);
-    if (!p) throw new HttpError(404, 'Pedido no encontrado');
-    if (p.estado === 'cancelado') throw new HttpError(409, 'El pedido está cancelado');
-    if (!p.confirmado) throw new HttpError(409, 'Primero confirma el pedido');
-    const flow = FLOW(p), next = flow[flow.indexOf(p.estado) + 1];
-    if (!next) throw new HttpError(409, 'El pedido ya está en su estado final');
-    if (req.user.rol === 'cocina' && !['preparacion', 'listo'].includes(next)) throw new HttpError(403, 'Sin permiso');
-    if (next === 'preparacion' && !p.inventario_descontado) await descontarInventario(c, p.id, req.user.id);
-    await c.query(`UPDATE pedidos SET estado = $2::varchar, inventario_descontado = inventario_descontado OR $3,
-        preparacion_en = CASE WHEN $2::text = 'preparacion' THEN now() ELSE preparacion_en END,
-        listo_en       = CASE WHEN $2::text = 'listo' THEN now() ELSE listo_en END WHERE id = $1`,
-      [p.id, next, next === 'preparacion']);
-    if (next === 'listo') await c.query('UPDATE pedido_items SET listo = TRUE WHERE pedido_id = $1', [p.id]);
-    await c.query('COMMIT');
-    notify();
-    res.json({ estado: next });
-  } catch (e) { await c.query('ROLLBACK'); throw e; } finally { c.release(); }
-});
-
-// La cocina marca (o desmarca) cada plato como terminado
-app.patch('/api/pedidos/:id/items/:item/listo', auth('cocina', 'caja', 'admin'), async (req, res) => {
-  const { rowCount } = await q(`UPDATE pedido_items i SET listo = $3 FROM pedidos p
-    WHERE i.id = $2 AND i.pedido_id = $1 AND p.id = i.pedido_id AND p.estado IN ('espera','preparacion')`,
-    [req.params.id, req.params.item, req.body?.listo !== false]);
-  if (!rowCount) throw new HttpError(404, 'Plato no encontrado');
+app.patch('/api/pedidos/:id/domicilio', auth('caja', 'admin'), async (req, res) => {
+  const v = Number(req.body?.costo_domicilio);
+  if (!Number.isInteger(v) || v < 0 || v > 500000) throw bad('Valor de domicilio inválido');
+  await tx(async (c) => {
+    const p = await K.bloquear(c, req.params.id);
+    if (p.tipo !== 'domicilio') throw bad('El pedido no es a domicilio');
+    if (p.pagado || p.estado === 'cancelado') throw new HttpError(409, 'El pedido ya fue pagado o cancelado');
+    await c.query('UPDATE pedidos SET total = total - costo_domicilio + $2, costo_domicilio = $2 WHERE id = $1', [p.id, v]);
+  });
   notify();
   res.json({ ok: true });
 });
 
-// Cobrar exige un turno de caja abierto. FOR SHARE impide que el turno se cierre mientras se registra el cobro.
+// Corregir un pedido: solo mientras la cocina NO lo haya empezado. El cliente (con el enlace de su pedido) solo antes de que caja lo confirme.
+app.put('/api/pedidos/:id/items', async (req, res) => {
+  const t = userFrom(req);
+  const { rowCount: esStaff } = t ? await q("SELECT 1 FROM usuarios WHERE id = $1 AND activo AND rol IN ('caja','admin')", [t.id]) : { rowCount: 0 };
+  if (t && !esStaff && t.via === 'cookie' && req.headers['x-requested-with'] !== 'fercho') throw new HttpError(403, 'Solicitud no permitida');
+  const lines = K.lineasDe(req.body?.items, !!esStaff);
+  const total = await tx(async (c) => {
+    const p = await K.bloquear(c, req.params.id);
+    if (p.estado === 'cancelado') throw new HttpError(409, 'El pedido está cancelado');
+    if (!esStaff && p.confirmado) throw new HttpError(409, 'El pedido ya fue confirmado. Pide el complemento como un pedido nuevo');
+    return K.reemplazarItems(c, p, lines);
+  });
+  notify();
+  res.json({ ok: true, total });
+});
+
+// Seguimiento público por el cliente (el id es un UUID imposible de adivinar)
+app.get('/api/pedidos/:id/estado', async (req, res) => {
+  const { rows: [p] } = await q(`SELECT coalesce(numero_dia, numero) AS numero, tipo, estado, confirmado, creado_en, preparacion_en, listo_en,
+      (estado = 'espera' AND NOT pagado) AS editable, zonas_listas, pagado FROM pedidos WHERE id = $1`, [req.params.id]);
+  if (!p) throw new HttpError(404, 'Pedido no encontrado');
+  res.json(p);
+});
+
+/* ---------- Caja: ver pedidos, confirmar, entregar y cobrar (la cocina se maneja desde /api/cocina) ---------- */
+app.get('/api/pedidos', auth('caja', 'admin'), async (req, res) => {
+  const { rows } = await q(`
+    SELECT p.*, coalesce(p.numero_dia, p.numero) AS numero, (p.estado = 'espera' AND NOT p.pagado) AS editable,
+           (SELECT coalesce(x.numero_dia, x.numero) FROM pedidos x WHERE x.id = p.complemento_de) AS complemento_num,
+           coalesce((SELECT json_agg(json_build_object('id', i.id, 'nombre', i.nombre, 'cantidad', i.cantidad, 'plato_id', i.plato_id,
+             'precio_unit', i.precio_unit, 'sin', i.sin, 'nota', i.nota, 'opciones', i.opciones, 'libre', i.libre) ORDER BY i.id) FROM pedido_items i WHERE i.pedido_id = p.id), '[]') AS items,
+           coalesce((SELECT json_agg(json_build_object('zona', z.nombre, 'color', z.color, 'estado', zs.estado) ORDER BY z.orden)
+             FROM (SELECT zona_id, CASE WHEN bool_and(estado = 'lista') THEN 'lista' WHEN bool_or(estado <> 'espera') THEN 'preparando' ELSE 'espera' END AS estado
+                   FROM pedido_tareas WHERE pedido_id = p.id GROUP BY zona_id) zs JOIN zonas z ON z.id = zs.zona_id), '[]') AS zonas
+    FROM pedidos p
+    WHERE p.estado <> 'cancelado' AND NOT (p.estado = 'entregado' AND p.pagado)
+      AND (p.creado_en > now() - interval '48 hours' OR (p.estado = 'entregado' AND NOT p.pagado))
+    ORDER BY coalesce(p.confirmado_en, p.creado_en) LIMIT 300`);
+  res.json(rows);
+});
+
+// Caja entrega el pedido cuando cocina lo dejó listo (no toca la preparación)
+app.patch('/api/pedidos/:id/entregar', auth('caja', 'admin'), async (req, res) => {
+  const estado = await tx((c) => K.entregar(c, req.params.id));
+  notify();
+  res.json({ estado });
+});
+
+// Cobrar exige un turno de caja abierto. Genera la factura (comprobante interno, inmutable).
+// Se pueden juntar varios pedidos de la misma mesa en una sola cuenta con "ids".
 app.patch('/api/pedidos/:id/pagar', auth('caja', 'admin'), async (req, res) => {
   const out = await tx(async (c) => {
     const { rows: [t] } = await c.query('SELECT id FROM turnos_caja WHERE cerrado_en IS NULL FOR SHARE');
     if (!t) throw new HttpError(409, 'Abre la caja antes de cobrar');
-    const { rows: [p] } = await c.query('SELECT total, metodo_pago, pagado, estado FROM pedidos WHERE id = $1 FOR UPDATE', [req.params.id]);
-    if (!p || p.pagado || p.estado === 'cancelado') throw new HttpError(409, 'Pedido inexistente, cancelado o ya pagado');
-    const total = Number(p.total);
+    const extra = Array.isArray(req.body?.ids) ? [...new Set(req.body.ids.map(String))].filter((x) => x !== req.params.id).slice(0, 20) : [];
+    const { rows: pedidos } = await c.query('SELECT * FROM pedidos WHERE id = ANY($1) ORDER BY creado_en FOR UPDATE', [[req.params.id, ...extra]]);
+    const main = pedidos.find((p) => p.id === req.params.id);
+    if (!main || pedidos.length !== 1 + extra.length) throw new HttpError(404, 'Pedido no encontrado');
+    for (const p of pedidos) {
+      if (p.pagado || p.estado === 'cancelado') throw new HttpError(409, `El pedido #${p.numero_dia || p.numero} ya fue pagado o está cancelado`);
+      if (!p.confirmado) throw new HttpError(409, `El pedido #${p.numero_dia || p.numero} aún no está confirmado`);
+      const mismaMesa = main.tipo === 'mesa' && p.tipo === 'mesa' && p.mesa === main.mesa;
+      const ligado = p.complemento_de === main.id || main.complemento_de === p.id || (p.complemento_de && p.complemento_de === main.complemento_de);
+      if (p.id !== main.id && !(mismaMesa || ligado)) throw bad('Solo se pueden juntar pedidos de la misma mesa o complementos');
+      if (p.metodo_pago !== main.metodo_pago) throw bad('Los pedidos que se juntan deben pagarse con el mismo método');
+    }
+    const total = pedidos.reduce((a, p) => a + Number(p.total), 0);
     let recibido = null, vueltos = null;
-    if (p.metodo_pago === 'efectivo') {
+    if (main.metodo_pago === 'efectivo') {
       recibido = req.body?.efectivo_recibido === undefined ? total : Number(req.body.efectivo_recibido);   // sin dato = pago exacto
       if (!Number.isInteger(recibido) || recibido < 0 || recibido > 10000000) throw bad('Valor recibido inválido');
       if (recibido < total) throw bad('El dinero recibido no alcanza para pagar el pedido');
       vueltos = recibido - total;
     }
-    await c.query(`UPDATE pedidos SET pagado = TRUE, pagado_en = now(), turno_id = $2, efectivo_recibido = $3, vueltos = $4 WHERE id = $1`,
-      [req.params.id, t.id, recibido, vueltos]);
-    return { pagado: true, total, recibido, vueltos };
+    const ids = pedidos.map((p) => p.id);
+    const { rows: items } = await c.query(`SELECT i.nombre, i.cantidad, i.precio_unit::bigint AS precio_unit, i.sin, i.nota, i.libre, coalesce(p.numero_dia, p.numero) AS pedido
+        FROM pedido_items i JOIN pedidos p ON p.id = i.pedido_id WHERE i.pedido_id = ANY($1) ORDER BY p.creado_en, i.id`, [ids]);
+    await c.query('SELECT pg_advisory_xact_lock(727273)');   // numeración de facturas sin saltos
+    const { rows: [{ n }] } = await c.query('SELECT coalesce(max(numero), 0) + 1 AS n FROM facturas');
+    const { rows: [f] } = await c.query(
+      `INSERT INTO facturas (numero, turno_id, cajero_id, cajero, pedido_ids, numeros_pedido, tipo, mesa, cliente, telefono, direccion,
+                             items, total, metodo_pago, referencia_pago, recibido, vueltos, domicilio)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING id, numero, creada_en`,
+      [n, t.id, req.user.id, req.user.usuario, ids, pedidos.map((p) => p.numero_dia || p.numero), main.tipo, main.mesa, main.cliente, main.telefono,
+       main.direccion, JSON.stringify(items), total, main.metodo_pago, main.referencia_pago, recibido, vueltos,
+       pedidos.reduce((a, p) => a + Number(p.costo_domicilio), 0)]);
+    for (const p of pedidos)
+      await c.query(`UPDATE pedidos SET pagado = TRUE, pagado_en = now(), turno_id = $2, factura_id = $3,
+          efectivo_recibido = $4, vueltos = $5 WHERE id = $1`, [p.id, t.id, f.id, p.id === main.id ? recibido : null, p.id === main.id ? vueltos : null]);
+    return { pagado: true, total, recibido, vueltos, factura: f.numero, factura_id: f.id, pedidos: ids.length };
   });
   notify();
   res.json(out);
@@ -427,33 +460,48 @@ app.get('/api/insumos', auth('admin'), async (req, res) => {
   res.json((await q('SELECT * FROM insumos WHERE activo ORDER BY nombre')).rows);
 });
 
+const num = (v, def = null) => (v === undefined || v === null || v === '' ? def : Number(v));
+const cambio = (c, tipo, ref, nombre, campo, antes, despues, uid) => (String(antes) === String(despues) ? null : c.query(
+  'INSERT INTO cambios_precio (tipo, ref_id, nombre, campo, antes, despues, usuario_id) VALUES ($1,$2,$3,$4,$5,$6,$7)',
+  [tipo, ref, nombre, campo, String(antes ?? ''), String(despues ?? ''), uid]));
 app.post('/api/insumos', auth('admin'), upload.single('foto'), async (req, res) => {
   const { codigo, nombre, unidad } = req.body, cantidad = Number(req.body.cantidad || 0), costo = Number(req.body.costo_unitario || 0);
+  const merma = num(req.body.merma_pct, 0), peso = num(req.body.peso_unidad);
   if (!codigo || !nombre || !(cantidad >= 0) || !(costo >= 0)) throw bad('Código, nombre y cantidad válidos son obligatorios');
+  if (!(merma >= 0 && merma < 90) || (peso !== null && !(peso > 0))) throw bad('Merma (0 a 89 %) o peso por unidad inválidos');
   const foto = await guardarFoto(req);
   const c = await pool.connect();
   try {
     await c.query('BEGIN');
     const { rows: [i] } = await c.query(
-      'INSERT INTO insumos (codigo, nombre, cantidad, unidad, foto, costo_unitario) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *',
-      [codigo, nombre, cantidad, unidad || 'u', foto, costo]);
+      'INSERT INTO insumos (codigo, nombre, cantidad, unidad, foto, costo_unitario, merma_pct, peso_unidad) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *',
+      [codigo, nombre, cantidad, unidad || 'u', foto, costo, merma, peso]);
     if (cantidad > 0) await c.query(
-      `INSERT INTO movimientos_inventario (insumo_id, tipo, cantidad, motivo, usuario_id)
-       VALUES ($1,'entrada',$2,'Stock inicial',$3)`, [i.id, cantidad, req.user.id]);
+      `INSERT INTO movimientos_inventario (insumo_id, tipo, cantidad, delta, motivo, usuario_id)
+       VALUES ($1,'entrada',$2,$2,'Stock inicial',$3)`, [i.id, cantidad, req.user.id]);
     await c.query('COMMIT');
     res.status(201).json(i);
   } catch (e) { await c.query('ROLLBACK'); throw e; } finally { c.release(); }
 });
 
 app.put('/api/insumos/:id', auth('admin'), upload.single('foto'), async (req, res) => {
-  const { nombre, unidad } = req.body, costo = req.body.costo_unitario === undefined || req.body.costo_unitario === '' ? null : Number(req.body.costo_unitario);
+  const { nombre, unidad } = req.body, costo = num(req.body.costo_unitario), merma = num(req.body.merma_pct), peso = req.body.peso_unidad === '' ? 0 : num(req.body.peso_unidad);
   if (costo !== null && !(costo >= 0)) throw bad('Costo inválido');
+  if (merma !== null && !(merma >= 0 && merma < 90)) throw bad('La merma debe estar entre 0 y 89 %');
+  if (peso !== null && !(peso >= 0)) throw bad('Peso por unidad inválido');
   const foto = await guardarFoto(req);
-  const { rows: [i] } = await q(
-    `UPDATE insumos SET nombre = coalesce($2, nombre), unidad = coalesce($3, unidad), foto = coalesce($4, foto),
-        costo_unitario = coalesce($5, costo_unitario)
-     WHERE id = $1 AND activo RETURNING *`, [req.params.id, nombre || null, unidad || null, foto, costo]);
-  if (!i) throw new HttpError(404, 'Producto no encontrado');
+  const i = await tx(async (c) => {
+    const { rows: [o] } = await c.query('SELECT * FROM insumos WHERE id = $1 AND activo FOR UPDATE', [req.params.id]);
+    if (!o) throw new HttpError(404, 'Producto no encontrado');
+    const { rows: [n] } = await c.query(
+      `UPDATE insumos SET nombre = coalesce($2, nombre), unidad = coalesce($3, unidad), foto = coalesce($4, foto),
+          costo_unitario = coalesce($5, costo_unitario), merma_pct = coalesce($6, merma_pct),
+          peso_unidad = CASE WHEN $7::numeric IS NULL THEN peso_unidad WHEN $7::numeric = 0 THEN NULL ELSE $7::numeric END
+       WHERE id = $1 RETURNING *`, [req.params.id, nombre || null, unidad || null, foto, costo, merma, peso]);
+    if (costo !== null) await cambio(c, 'insumo', o.id, o.nombre, 'costo', Number(o.costo_unitario), Number(n.costo_unitario), req.user.id);
+    if (merma !== null) await cambio(c, 'insumo', o.id, o.nombre, 'merma_pct', Number(o.merma_pct), Number(n.merma_pct), req.user.id);
+    return n;
+  });
   res.json(i);
 });
 
@@ -475,8 +523,8 @@ app.post('/api/insumos/:id/movimiento', auth('admin'), async (req, res) => {
     if (Number(i.cantidad) + delta < 0) throw bad('No hay suficiente stock');
     await c.query('UPDATE insumos SET cantidad = cantidad + $2 WHERE id = $1', [req.params.id, delta]);
     await c.query(
-      `INSERT INTO movimientos_inventario (insumo_id, tipo, cantidad, motivo, usuario_id) VALUES ($1,$2,$3,$4,$5)`,
-      [req.params.id, tipo, Math.abs(delta), String(motivo || '').slice(0, 200) || null, req.user.id]);
+      `INSERT INTO movimientos_inventario (insumo_id, tipo, cantidad, delta, motivo, usuario_id) VALUES ($1,$2,$3,$4,$5,$6)`,
+      [req.params.id, tipo, Math.abs(delta), delta, String(motivo || '').slice(0, 200) || null, req.user.id]);
     await c.query('COMMIT');
     res.json({ cantidad: Number(i.cantidad) + delta });
   } catch (e) { await c.query('ROLLBACK'); throw e; } finally { c.release(); }
@@ -491,36 +539,66 @@ app.get('/api/movimientos', auth('admin'), async (req, res) => {   // historial 
 });
 
 /* ---------- Administrador: menú ---------- */
+const DIAS = (v) => { if (v === undefined) return undefined; const a = Array.isArray(v) ? v.map(Number) : []; if (a.some((d) => !Number.isInteger(d) || d < 0 || d > 6)) throw bad('Días inválidos'); return a.length ? [...new Set(a)] : null; };
+const FECHA_HORA = (v) => (v === undefined ? undefined : v === null || v === '' ? null : Number.isNaN(Date.parse(v)) ? (() => { throw bad('Fecha inválida'); })() : new Date(v).toISOString());
+async function guardarZonasCombo(c, platoId, zonas, combo) {
+  if (Array.isArray(zonas)) {
+    await c.query('DELETE FROM plato_zonas WHERE plato_id = $1', [platoId]);
+    for (const z of zonas) await c.query('INSERT INTO plato_zonas (plato_id, zona_id, parte) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING',
+      [platoId, Number(z.zona_id), z.parte ? String(z.parte).slice(0, 60) : null]);
+  }
+  if (Array.isArray(combo)) {
+    await c.query('DELETE FROM plato_combo WHERE promo_id = $1', [platoId]);
+    for (const x of combo) {
+      if (Number(x.plato_id) === Number(platoId)) throw bad('Una promoción no puede contenerse a sí misma');
+      await c.query('INSERT INTO plato_combo (promo_id, plato_id, cantidad) VALUES ($1,$2,$3)', [platoId, Number(x.plato_id), Math.max(1, Math.floor(Number(x.cantidad) || 1))]);
+    }
+  }
+}
+const json = (v, def) => { try { return v ? JSON.parse(v) : def; } catch { throw bad('Datos inválidos'); } };
 app.post('/api/platos', auth('admin'), upload.single('foto'), async (req, res) => {
   const { nombre, descripcion, emoji } = req.body, precio = Number(req.body.precio), categoria = String(req.body.categoria || 'General').trim().slice(0, 40) || 'General';
-  let receta = [];
-  try { receta = JSON.parse(req.body.receta || '[]'); } catch { throw bad('Receta inválida'); }
+  const receta = json(req.body.receta, []), zonas = json(req.body.zonas, []), combo = json(req.body.combo, []), dias = DIAS(json(req.body.dias, undefined));
+  const es_promo = req.body.es_promo === 'true' || req.body.es_promo === true;
   if (!nombre || !(precio >= 0)) throw bad('Nombre y precio válidos son obligatorios');
   const foto = await guardarFoto(req);
-  const c = await pool.connect();
-  try {
-    await c.query('BEGIN');
+  const p = await tx(async (c) => {
     const { rows: [p] } = await c.query(
-      'INSERT INTO platos (nombre, descripcion, precio, foto, emoji, categoria) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *',
-      [nombre, descripcion || null, precio, foto, emoji || '🍽️', categoria]);
+      `INSERT INTO platos (nombre, descripcion, precio, foto, emoji, categoria, es_promo, promo_desde, promo_hasta, dias)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+      [nombre, descripcion || null, precio, foto, emoji || '🍽️', es_promo ? 'Promociones' : categoria, es_promo,
+       FECHA_HORA(req.body.promo_desde) ?? null, FECHA_HORA(req.body.promo_hasta) ?? null, dias ?? null]);
     for (const r of receta)
-      await c.query('INSERT INTO recetas (plato_id, insumo_id, cantidad) VALUES ($1,$2,$3)',
-        [p.id, Number(r.insumo_id), Number(r.cantidad)]);
-    await c.query('COMMIT');
-    notify();
-    res.status(201).json(p);
-  } catch (e) { await c.query('ROLLBACK'); throw e; } finally { c.release(); }
+      await c.query('INSERT INTO recetas (plato_id, insumo_id, cantidad) VALUES ($1,$2,$3)', [p.id, Number(r.insumo_id), Number(r.cantidad)]);
+    await guardarZonasCombo(c, p.id, zonas, combo);
+    return p;
+  });
+  notify();
+  res.status(201).json(p);
 });
 
 app.put('/api/platos/:id', auth('admin'), async (req, res) => {
-  const { nombre, precio, agotado, categoria } = req.body;
-  if (precio !== undefined && !(Number(precio) >= 0)) throw bad('Precio inválido');
-  const { rows: [p] } = await q(
-    `UPDATE platos SET nombre = coalesce($2, nombre), precio = coalesce($3, precio), agotado = coalesce($4, agotado),
-        categoria = coalesce($5, categoria) WHERE id = $1 AND activo RETURNING *`,
-    [req.params.id, nombre ?? null, precio ?? null, typeof agotado === 'boolean' ? agotado : null,
-     categoria ? String(categoria).trim().slice(0, 40) : null]);
-  if (!p) throw new HttpError(404, 'Plato no encontrado');
+  const b = req.body || {};
+  if (b.precio !== undefined && !(Number(b.precio) >= 0)) throw bad('Precio inválido');
+  const dias = DIAS(b.dias), desde = FECHA_HORA(b.promo_desde), hasta = FECHA_HORA(b.promo_hasta);
+  const p = await tx(async (c) => {
+    const { rows: [o] } = await c.query('SELECT * FROM platos WHERE id = $1 AND activo FOR UPDATE', [req.params.id]);
+    if (!o) throw new HttpError(404, 'Plato no encontrado');
+    const { rows: [n] } = await c.query(
+      `UPDATE platos SET nombre = coalesce($2, nombre), precio = coalesce($3, precio), agotado = coalesce($4, agotado),
+          categoria = coalesce($5, categoria), descripcion = coalesce($6, descripcion), emoji = coalesce($7, emoji),
+          dias = CASE WHEN $8::boolean THEN $9::smallint[] ELSE dias END,
+          promo_desde = CASE WHEN $10::boolean THEN $11::timestamptz ELSE promo_desde END,
+          promo_hasta = CASE WHEN $12::boolean THEN $13::timestamptz ELSE promo_hasta END,
+          orden = coalesce($14, orden)
+       WHERE id = $1 RETURNING *`,
+      [req.params.id, b.nombre ?? null, b.precio ?? null, typeof b.agotado === 'boolean' ? b.agotado : null,
+       b.categoria ? String(b.categoria).trim().slice(0, 40) : null, b.descripcion ?? null, b.emoji ?? null,
+       dias !== undefined, dias ?? null, desde !== undefined, desde ?? null, hasta !== undefined, hasta ?? null, Number.isInteger(b.orden) ? b.orden : null]);
+    if (b.precio !== undefined) await cambio(c, 'plato', o.id, o.nombre, 'precio', Number(o.precio), Number(n.precio), req.user.id);
+    await guardarZonasCombo(c, o.id, b.zonas, b.combo);
+    return n;
+  });
   notify();
   res.json(p);
 });
@@ -549,7 +627,7 @@ const PAGADOS = 'pagado AND pagado_en::date BETWEEN $1 AND $2';
 
 app.get('/api/contabilidad/resumen', auth('admin'), async (req, res) => {
   const R = rango(req);
-  const [v, tipos, horas, dias, canc, gas, gcat, cost, top, tiempos] = await Promise.all([
+  const [v, tipos, horas, dias, canc, gas, gcat, cost, top, tiempos, inv, invIns, domi] = await Promise.all([
     q(`SELECT count(*)::int AS pedidos, coalesce(sum(total),0)::bigint AS total,
          coalesce(sum(total) FILTER (WHERE metodo_pago = 'efectivo'),0)::bigint AS efectivo,
          coalesce(sum(total) FILTER (WHERE metodo_pago = 'nequi'),0)::bigint AS nequi FROM pedidos WHERE ${PAGADOS}`, R),
@@ -560,9 +638,10 @@ app.get('/api/contabilidad/resumen', auth('admin'), async (req, res) => {
     q(`SELECT count(*)::int AS pedidos, coalesce(sum(total),0)::bigint AS total FROM pedidos WHERE estado = 'cancelado' AND creado_en::date BETWEEN $1 AND $2`, R),
     q(`SELECT coalesce(sum(monto),0)::bigint AS total FROM gastos WHERE NOT anulado AND fecha BETWEEN $1 AND $2`, R),
     q(`SELECT categoria, sum(monto)::bigint AS total FROM gastos WHERE NOT anulado AND fecha BETWEEN $1 AND $2 GROUP BY 1 ORDER BY 2 DESC`, R),
-    q(`SELECT coalesce(sum(m.cantidad * i.costo_unitario) FILTER (WHERE m.pedido_id IS NOT NULL),0)::bigint AS costo_ventas,
-              coalesce(sum(m.cantidad * i.costo_unitario) FILTER (WHERE m.pedido_id IS NULL),0)::bigint AS mermas
-       FROM movimientos_inventario m JOIN insumos i ON i.id = m.insumo_id WHERE m.tipo = 'salida' AND m.creado_en::date BETWEEN $1 AND $2`, R),
+    q(`SELECT coalesce(sum(m.cantidad * i.costo_unitario) FILTER (WHERE m.pedido_id IS NOT NULL AND pe.estado <> 'cancelado'),0)::bigint AS costo_ventas,
+              coalesce(sum(m.cantidad * i.costo_unitario) FILTER (WHERE m.pedido_id IS NULL OR pe.estado = 'cancelado'),0)::bigint AS mermas
+       FROM movimientos_inventario m JOIN insumos i ON i.id = m.insumo_id LEFT JOIN pedidos pe ON pe.id = m.pedido_id
+       WHERE m.tipo = 'salida' AND m.creado_en::date BETWEEN $1 AND $2`, R),
     q(`SELECT it.nombre, sum(it.cantidad)::int AS unidades, sum(it.cantidad * it.precio_unit)::bigint AS ingresos
        FROM pedido_items it JOIN pedidos p ON p.id = it.pedido_id WHERE ${PAGADOS.replaceAll('pagado', 'p.pagado')} GROUP BY it.nombre ORDER BY unidades DESC LIMIT 10`, R),
     q(`SELECT count(*)::int AS pedidos,
@@ -570,6 +649,10 @@ app.get('/api/contabilidad/resumen', auth('admin'), async (req, res) => {
          round(avg(extract(epoch FROM preparacion_en - coalesce(confirmado_en, creado_en))))::int AS espera_seg,
          round(avg(extract(epoch FROM listo_en - preparacion_en)))::int AS cocina_seg
        FROM pedidos WHERE listo_en IS NOT NULL AND preparacion_en IS NOT NULL AND creado_en::date BETWEEN $1 AND $2`, R),
+    q(`SELECT coalesce(sum(costo_total),0)::bigint AS total FROM compras_inventario WHERE NOT anulada AND fecha BETWEEN $1 AND $2`, R),
+    q(`SELECT i.nombre, sum(c.costo_total)::bigint AS total FROM compras_inventario c JOIN insumos i ON i.id = c.insumo_id
+       WHERE NOT c.anulada AND c.fecha BETWEEN $1 AND $2 GROUP BY 1 ORDER BY 2 DESC`, R),
+    q(`SELECT coalesce(sum(costo_domicilio),0)::bigint AS total, count(*) FILTER (WHERE costo_domicilio > 0)::int AS pedidos FROM pedidos WHERE ${PAGADOS}`, R),
   ]);
   const ventas = v.rows[0], c = cost.rows[0], gastos = Number(gas.rows[0].total);
   const bruta = Number(ventas.total) - Number(c.costo_ventas);
@@ -578,34 +661,47 @@ app.get('/api/contabilidad/resumen', auth('admin'), async (req, res) => {
     por_tipo: tipos.rows, por_hora: horas.rows, por_dia: dias.rows, cancelados: canc.rows[0],
     gastos: { total: gastos, por_categoria: gcat.rows }, costo_ventas: Number(c.costo_ventas), mermas: Number(c.mermas),
     utilidad_bruta: bruta, utilidad_neta: bruta - Number(c.mermas) - gastos, top_platos: top.rows, tiempos: tiempos.rows[0],
+    // Compras de inventario: gasto de inversión. No entra a la utilidad (el costo de lo vendido ya la descuenta); sí al flujo de caja.
+    inversion: { total: Number(inv.rows[0].total), por_insumo: invIns.rows },
+    domicilios: { total: Number(domi.rows[0].total), pedidos: domi.rows[0].pedidos },   // ya incluido en ventas; normalmente se le entrega al domiciliario
+    flujo_caja: Number(ventas.total) - gastos - Number(inv.rows[0].total),
+    dias: Math.round((Date.parse(R[1]) - Date.parse(R[0])) / 864e5) + 1,
   });
 });
 
-const FORMATOS = { dia: ['YYYY-MM-DD', 31], mes: ['YYYY-MM', 24], anio: ['YYYY', 10] };
+const FORMATOS = { dia: ['YYYY-MM-DD', 31], semana: ['IYYY-"S"IW', 26], mes: ['YYYY-MM', 24], anio: ['YYYY', 10] };
 app.get('/api/contabilidad/serie', auth('admin'), async (req, res) => {
   const f = FORMATOS[req.query.periodo || 'dia'];
-  if (!f) throw bad('periodo debe ser dia, mes o anio');
+  if (!f) throw bad('periodo debe ser dia, semana, mes o anio');
   const { rows } = await q(`
     WITH v AS (SELECT to_char(pagado_en, $1) AS p, count(*)::int AS pedidos, sum(total)::bigint AS total,
                  coalesce(sum(total) FILTER (WHERE metodo_pago = 'efectivo'),0)::bigint AS efectivo,
                  coalesce(sum(total) FILTER (WHERE metodo_pago = 'nequi'),0)::bigint AS nequi
                FROM pedidos WHERE pagado GROUP BY 1),
-         g AS (SELECT to_char(fecha, $1) AS p, sum(monto)::bigint AS gastos FROM gastos WHERE NOT anulado GROUP BY 1)
-    SELECT coalesce(v.p, g.p) AS periodo, coalesce(v.pedidos,0) AS pedidos, coalesce(v.total,0) AS total,
+         g AS (SELECT to_char(fecha, $1) AS p, sum(monto)::bigint AS gastos FROM gastos WHERE NOT anulado GROUP BY 1),
+         k AS (SELECT to_char(fecha, $1) AS p, sum(costo_total)::bigint AS inversion FROM compras_inventario WHERE NOT anulada GROUP BY 1),
+         t AS (SELECT p FROM v UNION SELECT p FROM g UNION SELECT p FROM k)
+    SELECT t.p AS periodo, coalesce(v.pedidos,0) AS pedidos, coalesce(v.total,0) AS total,
            coalesce(v.efectivo,0) AS efectivo, coalesce(v.nequi,0) AS nequi, coalesce(g.gastos,0) AS gastos,
-           coalesce(v.total,0) - coalesce(g.gastos,0) AS resultado
-    FROM v FULL JOIN g ON v.p = g.p ORDER BY 1 DESC LIMIT $2`, [f[0], f[1]]);
+           coalesce(k.inversion,0) AS inversion,
+           coalesce(v.total,0) - coalesce(g.gastos,0) AS resultado,
+           coalesce(v.total,0) - coalesce(g.gastos,0) - coalesce(k.inversion,0) AS flujo
+    FROM t LEFT JOIN v ON v.p = t.p LEFT JOIN g ON g.p = t.p LEFT JOIN k ON k.p = t.p ORDER BY 1 DESC LIMIT $2`, [f[0], f[1]]);
   res.json(rows);
 });
 
 app.get('/api/contabilidad/margenes', auth('admin'), async (req, res) => {
   const { rows } = await q(`
+    WITH cp AS (
+      SELECT p.id, coalesce(sum(r.cantidad / (1 - i.merma_pct / 100.0) * i.costo_unitario), 0) AS costo, count(r.insumo_id)::int AS n
+      FROM platos p LEFT JOIN recetas r ON r.plato_id = p.id LEFT JOIN insumos i ON i.id = r.insumo_id GROUP BY p.id)
     SELECT p.id, p.nombre, p.categoria, p.precio::bigint AS precio,
-           coalesce(sum(r.cantidad * i.costo_unitario),0)::bigint AS costo,
-           (p.precio - coalesce(sum(r.cantidad * i.costo_unitario),0))::bigint AS margen,
-           count(r.insumo_id)::int AS ingredientes
-    FROM platos p LEFT JOIN recetas r ON r.plato_id = p.id LEFT JOIN insumos i ON i.id = r.insumo_id
-    WHERE p.activo GROUP BY p.id ORDER BY p.categoria, p.nombre`);
+           (cp.costo + coalesce(sum(cb.cantidad * cc.costo), 0))::bigint AS costo,
+           (p.precio - cp.costo - coalesce(sum(cb.cantidad * cc.costo), 0))::bigint AS margen,
+           (cp.n + coalesce(sum(cc.n), 0))::int AS ingredientes
+    FROM platos p JOIN cp ON cp.id = p.id
+    LEFT JOIN plato_combo cb ON cb.promo_id = p.id LEFT JOIN cp cc ON cc.id = cb.plato_id
+    WHERE p.activo GROUP BY p.id, cp.costo, cp.n ORDER BY p.categoria, p.nombre`);
   res.json(rows);
 });
 
@@ -641,10 +737,12 @@ const csvCelda = (v) => {
 };
 app.get('/api/contabilidad/exportar.csv', auth('admin'), async (req, res) => {
   const R = rango(req);
-  const [v, g] = await Promise.all([
+  const [v, g, inv] = await Promise.all([
     q(`SELECT pagado_en, turno_id, coalesce(numero_dia, numero) AS numero, tipo, metodo_pago, total, efectivo_recibido, vueltos, referencia_pago
        FROM pedidos WHERE ${PAGADOS} ORDER BY pagado_en`, R),
     q(`SELECT fecha::text, categoria, descripcion, monto, anulado FROM gastos WHERE fecha BETWEEN $1 AND $2 ORDER BY fecha, id`, R),
+    q(`SELECT c.fecha::text, i.nombre, c.cantidad_base, i.unidad, c.costo_total, c.proveedor, c.pagado_con, c.anulada
+       FROM compras_inventario c JOIN insumos i ON i.id = c.insumo_id WHERE c.fecha BETWEEN $1 AND $2 ORDER BY c.fecha, c.id`, R),
   ]);
   const fila = (a) => a.map(csvCelda).join(';');
   const out = [
@@ -652,6 +750,8 @@ app.get('/api/contabilidad/exportar.csv', auth('admin'), async (req, res) => {
     ...v.rows.map((r) => fila([r.pagado_en, r.turno_id, r.numero, r.tipo, r.metodo_pago, r.total, r.efectivo_recibido, r.vueltos, r.referencia_pago])),
     '', 'GASTOS', fila(['Fecha', 'Categoría', 'Descripción', 'Monto COP', 'Anulado']),
     ...g.rows.map((r) => fila([r.fecha, r.categoria, r.descripcion, r.monto, r.anulado ? 'SI' : 'NO'])),
+    '', 'COMPRAS DE INVENTARIO (inversión, no restan a la utilidad)', fila(['Fecha', 'Producto', 'Cantidad', 'Unidad', 'Costo total COP', 'Proveedor', 'Pagado con', 'Anulada']),
+    ...inv.rows.map((r) => fila([r.fecha, r.nombre, r.cantidad_base, r.unidad, r.costo_total, r.proveedor, r.pagado_con, r.anulada ? 'SI' : 'NO'])),
   ].join('\r\n');
   res.set({ 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': `attachment; filename="fercho_${R[0]}_a_${R[1]}.csv"` });
   res.send('﻿' + out);
@@ -659,17 +759,33 @@ app.get('/api/contabilidad/exportar.csv', auth('admin'), async (req, res) => {
 
 /* ---------- Caja: confirmar pedidos de clientes, cancelar y cierre del día ---------- */
 app.patch('/api/pedidos/:id/confirmar', auth('caja', 'admin'), async (req, res) => {
-  const { rowCount } = await q("UPDATE pedidos SET confirmado = TRUE, confirmado_en = now() WHERE id = $1 AND NOT confirmado AND estado <> 'cancelado'", [req.params.id]);
-  if (!rowCount) throw new HttpError(409, 'El pedido ya está confirmado o fue cancelado');
+  await tx(async (c) => {
+    const p = await K.bloquear(c, req.params.id);
+    if (p.confirmado || p.estado === 'cancelado') throw new HttpError(409, 'El pedido ya está confirmado o fue cancelado');
+    await c.query('UPDATE pedidos SET confirmado = TRUE, confirmado_en = now() WHERE id = $1', [p.id]);
+    await K.encolar(c, p.id, req.user.id);
+  });
   notify();
   res.json({ confirmado: true });
 });
 
+// Cancelar: antes de que cocina empiece lo hace caja o el administrador. Ya en preparación solo el administrador,
+// con motivo obligatorio, y queda registrado como desperdicio (la comida ya se estaba haciendo).
 app.patch('/api/pedidos/:id/cancelar', auth('caja', 'admin'), async (req, res) => {
-  const motivo = String(req.body?.motivo || '').slice(0, 200) || null;
-  const { rowCount } = await q(`UPDATE pedidos SET estado = 'cancelado', cancelado_motivo = $2
-    WHERE id = $1 AND NOT pagado AND estado NOT IN ('entregado','cancelado')`, [req.params.id, motivo]);
-  if (!rowCount) throw new HttpError(409, 'No se puede cancelar este pedido');
+  const motivo = String(req.body?.motivo || '').trim().slice(0, 200);
+  await tx(async (c) => {
+    const p = await K.bloquear(c, req.params.id);
+    if (p.pagado || ['entregado', 'cancelado'].includes(p.estado)) throw new HttpError(409, 'No se puede cancelar este pedido');
+    const enMarcha = p.confirmado && p.estado !== 'espera';
+    if (enMarcha) {
+      if (req.user.rol !== 'admin') throw new HttpError(403, 'El pedido ya está en preparación: solo el administrador puede cancelarlo');
+      if (motivo.length < 3) throw bad('Escribe el motivo de la cancelación');
+    }
+    await c.query(`UPDATE pedidos SET estado = 'cancelado', cancelado_motivo = $2, desperdicio = $3 WHERE id = $1`, [p.id, motivo || null, enMarcha]);
+    if (enMarcha && await K.modoImpresion(c)) await K.crearComandas(c, p.id, 'anulado', motivo);   // avisa en papel a las zonas
+    await c.query('DELETE FROM pedido_tareas WHERE pedido_id = $1', [p.id]);
+    if (enMarcha) await audit(c, null, 'cancelado_en_preparacion', { pedido: p.numero_dia || p.numero, total: Number(p.total), motivo }, req);
+  });
   notify();
   res.json({ estado: 'cancelado' });
 });
@@ -882,6 +998,8 @@ setInterval(async () => {
     if (rowCount) notify();
   } catch (e) { console.error(e.message); }
 }, 60 * 60 * 1000).unref();
+
+montarV8({ app, q, pool, tx, auth, notify, audit, upload, guardarFoto });
 
 /* ---------- Errores ---------- */
 app.use('/api', (req, res) => res.status(404).json({ error: 'Ruta no encontrada' }));

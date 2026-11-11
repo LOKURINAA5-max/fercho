@@ -1,3 +1,5 @@
+> **Versión 8:** lee `NOVEDADES_V8.md` (zonas de cocina, facturas, inversión, nuevo diseño y cómo actualizar).
+
 # Fercho · Sistema de pedidos, caja, cocina y contabilidad
 
 Sistema web para el restaurante **Hamburguesas y Pinchos Fercho**: los clientes piden desde el celular escaneando un QR

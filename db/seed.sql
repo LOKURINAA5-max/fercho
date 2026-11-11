@@ -20,3 +20,10 @@ UPDATE insumos SET costo_unitario = CASE codigo
   WHEN 'PAN-01' THEN 900 WHEN 'CAR-01' THEN 3500 WHEN 'QUE-01' THEN 1200 WHEN 'POL-01' THEN 3000
   WHEN 'CER-01' THEN 3200 WHEN 'TOM-01' THEN 300 WHEN 'LEC-01' THEN 300 WHEN 'PAP-01' THEN 1000
   WHEN 'GAS-01' THEN 1800 ELSE 0 END;
+
+-- Zonas de cocina del menú de ejemplo: los pinchos van al Asador y el resto (menos bebidas) a la Plancha
+INSERT INTO plato_zonas (plato_id, zona_id)
+SELECT p.id, (SELECT id FROM zonas WHERE nombre = CASE WHEN p.nombre ~* 'pincho' THEN 'Asador' ELSE 'Plancha' END)
+FROM platos p
+WHERE p.categoria !~* '(bebida|cerveza|jugo|gaseosa|otras)' AND NOT EXISTS (SELECT 1 FROM plato_zonas z WHERE z.plato_id = p.id)
+ON CONFLICT DO NOTHING;

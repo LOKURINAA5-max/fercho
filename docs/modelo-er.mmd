@@ -145,3 +145,103 @@ erDiagram
         bytea datos "max 300 KB"
         timestamptz creado_en
     }
+    ZONAS {
+        int id PK
+        varchar nombre UK
+        varchar color
+        bool activa
+    }
+    PLATO_ZONAS {
+        int plato_id FK
+        int zona_id FK
+        varchar parte
+    }
+    PLATO_COMBO {
+        int promo_id FK
+        int plato_id FK
+        int cantidad
+    }
+    PEDIDO_TAREAS {
+        bigint id PK
+        uuid pedido_id FK
+        int zona_id FK
+        varchar estado "espera, preparando, lista"
+    }
+    FACTURAS {
+        int id PK
+        int numero UK
+        uuid[] pedido_ids
+        jsonb items
+        numeric total
+    }
+    COMPRAS_INVENTARIO {
+        int id PK
+        int insumo_id FK
+        numeric cantidad_base
+        numeric costo_total "inversion"
+    }
+    PRESENTACIONES {
+        int id PK
+        int insumo_id FK
+        varchar nombre
+        numeric cantidad_base
+    }
+    CAMBIOS_PRECIO {
+        bigint id PK
+        varchar tipo "plato, insumo"
+        int ref_id
+        text antes
+        text despues
+    }
+    ANUNCIOS {
+        int id PK
+        varchar titulo
+        text foto
+        int plato_id FK
+    }
+    AJUSTES {
+        varchar clave PK
+        text valor
+    }
+    ZONAS ||--o{ PLATO_ZONAS : prepara
+    PLATOS ||--o{ PLATO_ZONAS : "se prepara en"
+    PLATOS ||--o{ PLATO_COMBO : "promocion contiene"
+    PEDIDOS ||--o{ PEDIDO_TAREAS : "se divide en"
+    ZONAS ||--o{ PEDIDO_TAREAS : ejecuta
+    INSUMOS ||--o{ COMPRAS_INVENTARIO : "se compra"
+    INSUMOS ||--o{ PRESENTACIONES : "viene en"
+    PLATOS ||--o{ ANUNCIOS : "promociona"
+    OPCION_GRUPOS {
+        int id PK
+        int plato_id FK
+        varchar nombre
+        bool obligatorio
+        bool multiple
+    }
+    OPCIONES {
+        int id PK
+        int grupo_id FK
+        varchar nombre
+        numeric precio_extra
+        int zona_id FK
+    }
+    OPCION_RECETA {
+        int opcion_id FK
+        int insumo_id FK
+        numeric cantidad
+    }
+    IMPRESIONES {
+        bigint id PK
+        uuid pedido_id FK
+        int zona_id FK
+        varchar tipo "comanda, anulado, copia"
+        jsonb contenido
+        varchar estado "pendiente, imprimiendo, impresa"
+    }
+    PLATOS ||--o{ OPCION_GRUPOS : "tiene opciones"
+    OPCION_GRUPOS ||--o{ OPCIONES : agrupa
+    OPCIONES ||--o{ OPCION_RECETA : consume
+    INSUMOS ||--o{ OPCION_RECETA : "usado en"
+    ZONAS ||--o{ OPCIONES : prepara
+    PEDIDOS ||--o{ IMPRESIONES : "se imprime"
+    ZONAS ||--o{ IMPRESIONES : recibe
