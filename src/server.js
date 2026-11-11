@@ -14,6 +14,7 @@ import { HttpError, bad } from './errores.js';
 import * as K from './cocina.js';
 import { montarV8 } from './v8.js';
 import * as DOM from './domicilio.js';
+import * as GEO from './geocodificar.js';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
@@ -34,7 +35,11 @@ const pool = new pg.Pool({
   options: '-c timezone=America/Bogota',
   max: Number(process.env.DB_POOL_MAX || 10),
   ssl: process.env.DATABASE_SSL === 'true' ? { rejectUnauthorized: process.env.DATABASE_SSL_VERIFY !== 'false' } : undefined,
-  idleTimeoutMillis: 30000, connectionTimeoutMillis: 10000, statement_timeout: 15000,   // una consulta lenta no deja colgado el sistema
+  // Las conexiones a la base se mantienen abiertas 4 minutos sin uso (antes 30 s). Abrir una conexión nueva con Neon
+  // cuesta cerca de medio segundo; así, mientras el local está atendiendo, cada clic usa una conexión ya lista.
+  // Pasados 4 minutos sin nadie usando el sistema se cierran, y Neon gratis puede dormirse como antes.
+  idleTimeoutMillis: Number(process.env.DB_IDLE_MS || 240000), keepAlive: true,
+  connectionTimeoutMillis: 10000, statement_timeout: 15000,   // una consulta lenta no deja colgado el sistema
 });
 pool.on('error', (e) => console.error('Error en la conexión a la base:', e.message));
 const q = (sql, params) => pool.query(sql, params);
@@ -122,6 +127,13 @@ if (process.env.LOG_ACCESO !== 'false') app.use((req, res, next) => {
   const t0 = Date.now();
   res.on('finish', () => { if (!['/api/salud', '/api/eventos'].includes(req.path))
     console.log(JSON.stringify({ t: new Date().toISOString(), m: req.method, p: req.path, s: res.statusCode, ms: Date.now() - t0, ip: req.ip })); });
+  next();
+});
+// Medición: cada respuesta lleva su tiempo (Server-Timing) y las lentas (> 800 ms) quedan en los logs de Render para encontrar la causa del lag
+app.use((req, res, next) => {
+  if (!req.path.startsWith('/api/') || req.path === '/api/eventos') return next();
+  const t0 = process.hrtime.bigint(), fin = res.writeHead;
+  res.writeHead = function (...a) { const ms = Number(process.hrtime.bigint() - t0) / 1e6; res.setHeader('Server-Timing', `app;dur=${ms.toFixed(0)}`); if (ms > 800) console.warn(`[lento] ${req.method} ${req.path} ${ms.toFixed(0)} ms`); return fin.apply(this, a); };
   next();
 });
 app.use(express.json({ limit: '100kb' }));
@@ -358,6 +370,13 @@ app.get('/api/domicilio/config', async (req, res) => {
 app.post('/api/domicilio/cotizar', rateLimit({ windowMs: 60 * 1000, limit: 60 }), async (req, res) => {
   const cfg = DOM.config(await K.ajustes(pool)), pt = DOM.punto(req.body?.lat, req.body?.lng);
   res.json({ ...DOM.cotizar(cfg, pt), modo: cfg.modo });
+});
+// Buscar en el mapa la dirección que escribió el cliente (para que confirme el punto en vez de buscarlo a mano)
+app.get('/api/domicilio/buscar', rateLimit({ windowMs: 60 * 1000, limit: 12, message: { error: 'Demasiadas búsquedas seguidas. Espera un momento' } }), async (req, res) => {
+  const dir = String(req.query.dir || '').trim();
+  if (dir.length < 4) throw bad('Escribe la dirección completa (ej.: Calle 45 # 23-10)');
+  try { res.json(await GEO.buscar(dir, String(req.query.mun || 'Bucaramanga'), String(req.query.barrio || ''))); }
+  catch (e) { console.warn('[geocodificar]', e.message); res.json({ encontrado: false, precision: 'municipio', error: 'servicio', centro: { lat: 7.1193, lng: -73.1227 } }); }
 });
 app.patch('/api/pedidos/:id/domicilio', auth('caja', 'admin'), async (req, res) => {
   const v = Number(req.body?.costo_domicilio);

@@ -180,34 +180,59 @@ export function montarV8({ app, q, pool, tx, auth, notify, audit, upload, guarda
     notify();
     res.json({ foto });
   });
+  // Carga la carta real de Fercho. Se hace con pocas consultas grandes (no una por plato) para que sea rápido
+  // aunque la base de datos esté lejos del servidor (Render + Neon en regiones distintas).
+  let cargando = false;
   app.post('/api/menu/cargar-fercho', auth('admin'), async (req, res) => {
-    const out = await tx(async (c) => {
-      if (req.body?.reemplazar === true) await c.query('UPDATE platos SET activo = FALSE');
-      const zonas = new Map((await c.query('SELECT id, nombre FROM zonas')).rows.map((z) => [z.nombre, z.id]));
-      const ids = new Map(); let creados = 0, existentes = 0, orden = 0;
-      for (const cat of CARTA) for (const [nombre, precio, desc, zs, op = {}] of cat.items) {
-        orden++;
-        const { rows: [ex] } = await c.query('SELECT id FROM platos WHERE lower(nombre) = lower($1) AND activo', [nombre]);
-        if (ex) { ids.set(nombre, ex.id); existentes++; continue; }
-        const { rows: [p] } = await c.query(
-          `INSERT INTO platos (nombre, descripcion, precio, emoji, categoria, orden, es_promo, dias) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
-          [nombre, desc || null, precio, cat.emoji, cat.cat, orden, !!cat.promo, op.dias || null]);
-        ids.set(nombre, p.id); creados++;
-        for (const [zn, parte] of zs) if (zonas.has(zn)) await c.query('INSERT INTO plato_zonas (plato_id, zona_id, parte) VALUES ($1,$2,$3)', [p.id, zonas.get(zn), parte]);
-        let go = 0;
-        for (const g of op.grupos || []) {
-          const { rows: [gr] } = await c.query('INSERT INTO opcion_grupos (plato_id, nombre, obligatorio, orden) VALUES ($1,$2,TRUE,$3) RETURNING id', [p.id, g.nombre, go++]);
-          let oo = 0;
-          for (const o of g.opciones) await c.query('INSERT INTO opciones (grupo_id, nombre, precio_extra, zona_id, orden) VALUES ($1,$2,$3,$4,$5)', [gr.id, o.nombre, o.extra, o.zona && zonas.has(o.zona) ? zonas.get(o.zona) : null, oo++]);
+    if (cargando) throw new HttpError(409, 'La carta ya se está cargando. Espera unos segundos');
+    cargando = true;
+    try {
+      const out = await tx(async (c) => {
+        await c.query('SET LOCAL statement_timeout = 60000');
+        if (req.body?.reemplazar === true) await c.query('UPDATE platos SET activo = FALSE WHERE activo');
+        const zonas = new Map((await c.query('SELECT id, nombre FROM zonas')).rows.map((z) => [z.nombre, z.id]));
+        const filas = []; let orden = 0;
+        for (const cat of CARTA) for (const [nombre, precio, desc, zs, op = {}] of cat.items) filas.push({ nombre, precio, desc, zs, op, cat, orden: ++orden });
+        const { rows: ya } = await c.query('SELECT id, lower(nombre) AS n FROM platos WHERE activo AND lower(nombre) = ANY($1)', [filas.map((f) => f.nombre.toLowerCase())]);
+        const ids = new Map(ya.map((r) => [r.n, r.id]));
+        const nuevas = filas.filter((f) => !ids.has(f.nombre.toLowerCase()));
+        if (nuevas.length) {
+          const { rows } = await c.query(`
+            INSERT INTO platos (nombre, descripcion, precio, emoji, categoria, orden, es_promo, dias)
+            SELECT x.nombre, x.descripcion, x.precio, x.emoji, x.categoria, x.orden, x.es_promo, CASE WHEN x.dias = '' THEN NULL ELSE string_to_array(x.dias, ',')::smallint[] END
+            FROM json_to_recordset($1::json) AS x(nombre text, descripcion text, precio numeric, emoji text, categoria text, orden int, es_promo boolean, dias text)
+            RETURNING id, lower(nombre) AS n`,
+            [JSON.stringify(nuevas.map((f) => ({ nombre: f.nombre, descripcion: f.desc || null, precio: f.precio, emoji: f.cat.emoji, categoria: f.cat.cat, orden: f.orden, es_promo: !!f.cat.promo, dias: (f.op.dias || []).join(',') })))]);
+          for (const r of rows) ids.set(r.n, r.id);
+          const pz = [], gr = [];
+          for (const f of nuevas) {
+            const pid = ids.get(f.nombre.toLowerCase());
+            for (const [zn, parte] of f.zs) if (zonas.has(zn)) pz.push({ plato_id: pid, zona_id: zonas.get(zn), parte: parte || null });
+            (f.op.grupos || []).forEach((g, i) => gr.push({ plato_id: pid, nombre: g.nombre, orden: i, opciones: g.opciones }));
+          }
+          if (pz.length) await c.query(`INSERT INTO plato_zonas (plato_id, zona_id, parte) SELECT x.plato_id, x.zona_id, x.parte
+            FROM json_to_recordset($1::json) AS x(plato_id int, zona_id int, parte text) ON CONFLICT DO NOTHING`, [JSON.stringify(pz)]);
+          if (gr.length) {
+            const { rows: gs } = await c.query(`INSERT INTO opcion_grupos (plato_id, nombre, obligatorio, orden) SELECT x.plato_id, x.nombre, TRUE, x.orden
+              FROM json_to_recordset($1::json) AS x(plato_id int, nombre text, orden int) RETURNING id, plato_id, orden`, [JSON.stringify(gr.map(({ opciones, ...g }) => g))]);
+            const gid = new Map(gs.map((g) => [g.plato_id + ':' + g.orden, g.id])), ops = [];
+            for (const g of gr) g.opciones.forEach((o, i) => ops.push({ grupo_id: gid.get(g.plato_id + ':' + g.orden), nombre: o.nombre, precio_extra: o.extra, zona_id: o.zona && zonas.has(o.zona) ? zonas.get(o.zona) : null, orden: i }));
+            if (ops.length) await c.query(`INSERT INTO opciones (grupo_id, nombre, precio_extra, zona_id, orden) SELECT x.grupo_id, x.nombre, x.precio_extra, x.zona_id, x.orden
+              FROM json_to_recordset($1::json) AS x(grupo_id int, nombre text, precio_extra numeric, zona_id int, orden int)`, [JSON.stringify(ops)]);
+          }
         }
-      }
-      for (const cat of CARTA) for (const [nombre, , , , op = {}] of cat.items) for (const [comp, cant] of op.combo || []) {
-        if (ids.has(comp)) await c.query('INSERT INTO plato_combo (promo_id, plato_id, cantidad) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING', [ids.get(nombre), ids.get(comp), cant]);
-      }
-      return { creados, existentes };
-    });
-    notify();
-    res.json(out);
+        const cb = [];
+        for (const f of filas) for (const [comp, cant] of f.op.combo || []) {
+          const a = ids.get(f.nombre.toLowerCase()), b = ids.get(comp.toLowerCase());
+          if (a && b) cb.push({ promo_id: a, plato_id: b, cantidad: cant });
+        }
+        if (cb.length) await c.query(`INSERT INTO plato_combo (promo_id, plato_id, cantidad) SELECT x.promo_id, x.plato_id, x.cantidad
+          FROM json_to_recordset($1::json) AS x(promo_id int, plato_id int, cantidad int) ON CONFLICT DO NOTHING`, [JSON.stringify(cb)]);
+        return { creados: nuevas.length, existentes: filas.length - nuevas.length };
+      });
+      notify();
+      res.json(out);
+    } finally { cargando = false; }
   });
 
   /* ---------- Comandas impresas por zona ---------- */

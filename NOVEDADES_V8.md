@@ -140,3 +140,25 @@ Archivo nuevo de base de datos: `db/migracion_10_comandas.sql` (se aplica sola).
 - **Navegación del domiciliario con Waze** (tráfico en vivo) por defecto. En Ajustes → Domicilios se elige Waze, Google Maps o las dos. Con ubicación marcada lleva al punto exacto; sin ella busca la dirección escrita en Bucaramanga.
 - **Interruptor «Pedir ubicación en el mapa»**: apagado, el cliente y la caja solo escriben dirección y barrio. El cobro por kilómetro necesita la ubicación, así que el sistema no deja apagarla mientras ese cobro esté activo.
 - Archivo nuevo de base de datos: `db/migracion_12_navegacion.sql` (se aplica sola).
+
+## Dejar el sistema en limpio (antes del video o de abrir al público)
+`db/limpiar-pruebas.sql`: se pega en Neon → SQL Editor. Borra pedidos, facturas, turnos, gastos, compras e historiales de prueba; conserva usuarios, carta, opciones, insumos, zonas, anuncios y ajustes. Pedidos y facturas vuelven a empezar en 1. Opcional: poner el stock de los insumos en 0.
+
+## 9.2.1 · «Cargar la carta de Fercho» arreglado
+- La carga hacía unas 330 consultas una tras otra; con el servidor y la base en lugares distintos (Render + Neon) tardaba tanto que parecía no funcionar. Ahora son unas 7 consultas grandes: carga en segundos.
+- Se abre una ventana propia con dos botones (quitar lo actual o solo agregar) y un aviso de «Cargando…» mientras trabaja. Un segundo clic no lanza otra carga encima.
+
+## 9.2.2 · Carta más ágil y medición del lag
+- **Carta (administrador)**: buscador y filtro por categoría (se recuerda en el equipo). Con 102 productos, mostrar una categoría es unas 10 veces más rápido que dibujarlas todas.
+- **Medición**: cada respuesta del servidor indica cuánto tardó, y las que pasan de 0,8 s quedan escritas en los **Logs de Render** como `[lento] GET /api/... 1234 ms`. Sirve para saber si el lag viene del servidor o de la conexión.
+
+## 9.2.3 · Menos espera en cada clic
+- Las conexiones con la base de datos se cerraban tras 30 s sin uso, y abrir una nueva con Neon cuesta cerca de medio segundo (se veía en los logs: `/api/alertas` ≈ 550 ms). Ahora se mantienen 4 minutos: mientras el local atiende, cada acción usa una conexión lista. Sin uso por 4 minutos se cierran y Neon puede dormirse igual que antes. Se puede ajustar con la variable `DB_IDLE_MS` (milisegundos).
+
+## 9.3 · Buscar la dirección y confirmarla en el mapa
+- En domicilios, el cliente (o la caja) escribe la dirección, elige el municipio (Bucaramanga, Floridablanca, Girón o Piedecuesta) y pulsa **«🔎 Ver mi dirección en el mapa»**. El mapa se abre con el pin ya puesto en esa dirección; el cliente lo confirma o lo arrastra hasta su puerta.
+- Entiende la nomenclatura colombiana («Calle 45 # 23-10», «Cra 27 #50-12», «Cl. 36 No. 31-40», «Transversal 93 # 34-05»…): ubica la cuadra donde la calle se cruza con la carrera del número. Si no encuentra la calle, busca por el barrio; si tampoco, abre el mapa en el municipio para tocar la casa.
+- «📍 Estoy en el lugar de entrega» sigue disponible (GPS del celular).
+- Si el cliente cambia la dirección después de confirmarla, se le avisa que la busque de nuevo.
+- El domiciliario sigue llegando con Waze al punto confirmado.
+- Buscador: OpenStreetMap (gratis, máximo 1 búsqueda por segundo; cada dirección se recuerda 7 días). Opcional: variable `GOOGLE_GEOCODING_KEY` para usar Google, más preciso en Colombia.
