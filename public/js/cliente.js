@@ -1,7 +1,7 @@
 /* Fercho · cliente: portada, anuncios, menú, carrito, seguimiento y "pedir algo más" */
 let F={tipo:'mesa',pago:'efectivo',mesa:new URLSearchParams(location.search).get('mesa')||'',cli:'',tel:'',dir:'',ref:''};
 let DC=null,volver=false,cartCat=0,cartQ='',item=null,editando=null,anuncios=[],cerrados={};   // editando = pedido cuyos productos se están corrigiendo
-LOADERS.menu=async()=>{DC=await api('GET','/domicilio/config').catch(()=>DC);M=await api('GET','/menu');anuncios=staff()?[]:await api('GET','/anuncios').catch(()=>[])};
+LOADERS.menu=async()=>{const[d,m,a]=await Promise.all([api('GET','/domicilio/config').catch(()=>DC),api('GET','/menu'),staff()?[]:api('GET','/anuncios').catch(()=>[])]);DC=d;M=m;anuncios=a};
 LOADERS.mio=async()=>{D.mio=mio?await api('GET','/pedidos/'+mio+'/estado').catch(()=>null):null};
 /* Opciones del plato (presentación, guarnición, adicionales) */
 const grs=p=>((p&&p.grupos)||[]).filter(g=>g.opciones&&g.opciones.length);
@@ -46,7 +46,7 @@ function carrDots(){const s=$('#sl');if(!s)return;const i=Math.round(s.scrollLef
 let _ct;function carrAuto(){clearInterval(_ct);_ct=setInterval(()=>{const s=$('#sl');if(!s||s.children.length<2||document.hidden||bnPausa||bnHover||Date.now()-bnTouch<8000||$('#modal').innerHTML)return;bnGo(Math.round(s.scrollLeft/s.clientWidth)+1)},5000)}
 AFTER.menu=carrAuto;
 /* ---------- Menú ---------- */
-const cardP=p=>`<button class="pcard" ${p.agotado||!C.abierto?'disabled':''} onclick="openItem(${p.id})">${p.es_promo?'<span class="flag">PROMO</span>':''}<div class="pic">${p.foto?`<img src="${esc(p.foto)}" alt="" loading="lazy">`:esc(p.emoji||'🍽️')}</div><div class="bd"><b>${esc(p.nombre)}</b>${p.descripcion?`<span class="ds">${esc(p.descripcion)}</span>`:''}<span class="precio">${desde(p)?'<small>Desde </small>':''}${money(p.precio)}</span></div>${p.agotado?'<div class="ag">AGOTADO</div>':''}</button>`;
+const cardP=p=>`<button class="pcard" ${p.agotado||!C.abierto?'disabled':''} onclick="openItem(${p.id})">${p.es_promo?'<span class="flag">PROMO</span>':''}<div class="pic">${p.foto?`<img src="${esc(p.foto)}" alt="" loading="lazy" decoding="async">`:esc(p.emoji||'🍽️')}</div><div class="bd"><b>${esc(p.nombre)}</b>${p.descripcion?`<span class="ds">${esc(p.descripcion)}</span>`:''}<span class="precio">${desde(p)?'<small>Desde </small>':''}${money(p.precio)}</span></div>${p.agotado?'<div class="ag">AGOTADO</div>':''}</button>`;
 function menuGrid(){const cs=cats(),sel=cat>0?cs[cat-1]:null,q=busq.trim().toLowerCase();
  const l=M.filter(p=>(!sel||p.categoria===sel)&&(!q||p.nombre.toLowerCase().includes(q)));
  if(!l.length)return '<div class="card vacio">No encontramos productos con ese filtro.</div>';
@@ -75,7 +75,7 @@ function lineaOk(i){const f=opcFalta();if(f)return toast('Elige: '+f,true);cart[
 function masSec(){const cs=cats(),q=cartQ.trim().toLowerCase(),sel=cartCat>0?cs[cartCat-1]:null;
  const l=M.filter(p=>!p.agotado&&(!sel||p.categoria===sel)&&(!q||p.nombre.toLowerCase().includes(q))).slice(0,40);
  return `<div class="masbox"><b style="font:700 18px var(--fd);letter-spacing:.05em;text-transform:uppercase;color:var(--pri2)">➕ ¿Algo más?</b><input id="cqs" placeholder="🔍 Buscar" value="${esc(cartQ)}" oninput="cartQ=this.value;cartMas()"><div class="chips">${['Todo',...cs].map((c,i)=>`<button class="chip ${cartCat===i?'on':''}" onclick="cartCat=${i};cartM()">${esc(c)}</button>`).join('')}</div><div id="cml" class="minis">${minis(l)}</div></div>`}
-const minis=l=>l.map(p=>{const n=cart.filter(c=>c.plato_id===p.id).reduce((a,c)=>a+c.cantidad,0);return `<div class="mrow"><div class="mpic" onclick="${p.foto?`_lb=cartM;zoomImg('${esc(p.foto)}','${esc(p.nombre)}')`:`openItem(${p.id},true)`}">${p.foto?`<img src="${esc(p.foto)}" alt="" loading="lazy">`:esc(p.emoji||'🍽️')}</div><div class="grow" onclick="openItem(${p.id},true)"><b>${esc(p.nombre)}</b><div class="mut">${desde(p)?'Desde ':''}${money(p.precio)}</div></div><button class="btn sm" onclick="quickAdd(${p.id})">${n?'+1 ('+n+')':'+ Agregar'}</button></div>`}).join('')||'<div class="mut">Sin resultados</div>';
+const minis=l=>l.map(p=>{const n=cart.filter(c=>c.plato_id===p.id).reduce((a,c)=>a+c.cantidad,0);return `<div class="mrow"><div class="mpic" onclick="${p.foto?`_lb=cartM;zoomImg('${esc(p.foto)}','${esc(p.nombre)}')`:`openItem(${p.id},true)`}">${p.foto?`<img src="${esc(p.foto)}" alt="" loading="lazy" decoding="async">`:esc(p.emoji||'🍽️')}</div><div class="grow" onclick="openItem(${p.id},true)"><b>${esc(p.nombre)}</b><div class="mut">${desde(p)?'Desde ':''}${money(p.precio)}</div></div><button class="btn sm" onclick="quickAdd(${p.id})">${n?'+1 ('+n+')':'+ Agregar'}</button></div>`}).join('')||'<div class="mut">Sin resultados</div>';
 function cartMas(){const cs=cats(),q=cartQ.trim().toLowerCase(),sel=cartCat>0?cs[cartCat-1]:null;$('#cml').innerHTML=minis(M.filter(p=>!p.agotado&&(!sel||p.categoria===sel)&&(!q||p.nombre.toLowerCase().includes(q))).slice(0,40))}
 /* ---------- Domicilio: costo y ubicación ---------- */
 const domFee=t=>{if(!DC||DC.modo==='ninguno')return 0;if(DC.modo==='fija')return DC.fija;return t.dcosto==null?null:t.dcosto};

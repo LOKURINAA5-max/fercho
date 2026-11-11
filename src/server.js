@@ -42,7 +42,17 @@ const q = (sql, params) => pool.query(sql, params);
 
 /* ---------- Tiempo real: avisa a las pantallas que algo cambió (SSE) ---------- */
 const clientes = new Set();
-const notify = () => clientes.forEach((r) => r.write('data: cambio\n\n'));
+// Respuestas públicas que piden todos los clientes a cada rato (configuración, menú, anuncios): se guardan unos segundos
+// en memoria para no ir a la base de datos en cada visita. Cualquier cambio (notify) las borra de inmediato.
+const memo = new Map();
+async function cacheado(clave, ms, fn) {
+  const m = memo.get(clave);
+  if (m && Date.now() - m.t < ms) return m.v;
+  const v = await fn();
+  memo.set(clave, { t: Date.now(), v });
+  return v;
+}
+const notify = () => { memo.clear(); clientes.forEach((r) => r.write('data: cambio\n\n')); };
 setInterval(() => clientes.forEach((r) => r.write(':\n\n')), 25000).unref();
 
 /* ---------- Autenticación y permisos por rol ---------- */
@@ -121,6 +131,8 @@ app.get('/foto/:id', async (req, res) => {   // fotos guardadas en la base de da
   if (!f) return res.sendStatus(404);
   res.set({ 'Content-Type': f.tipo, 'Cache-Control': 'public, max-age=31536000, immutable' }).send(f.datos);
 });   // las fotos casi no cambian: menos carga y más rápido en el celular
+app.use('/img', express.static(path.join(root, 'public/img'), { maxAge: '7d' }));          // logo e imágenes fijas: el navegador las guarda
+app.use('/vendor', express.static(path.join(root, 'public/vendor'), { maxAge: '30d' }));   // librerías que no cambian
 app.use(express.static(path.join(root, 'public')));
 
 /* ---------- Públicas ---------- */
@@ -242,15 +254,14 @@ app.get('/api/salud', async (req, res) => {   // para monitoreo (UptimeRobot, Re
   try { await q('SELECT 1'); res.json({ estado: 'ok' }); } catch { res.status(503).json({ estado: 'error' }); }
 });
 
-app.get('/api/config', async (req, res) => {
-  const { rowCount } = await q('SELECT 1 FROM turnos_caja WHERE cerrado_en IS NULL');
-  const aj = await K.ajustes(pool);
-  res.json({ nequi_numero: process.env.NEQUI_NUMERO || null, nequi_nombre: process.env.NEQUI_NOMBRE || null,
+app.get('/api/config', async (req, res) => res.json(await cacheado('config', 4000, async () => {
+  const [{ rowCount }, aj] = await Promise.all([q('SELECT 1 FROM turnos_caja WHERE cerrado_en IS NULL'), K.ajustes(pool)]);
+  return ({ nequi_numero: process.env.NEQUI_NUMERO || null, nequi_nombre: process.env.NEQUI_NOMBRE || null,
     abierto: rowCount > 0, meta_min: Number(process.env.COCINA_META_MIN || 10), alerta_min: Number(process.env.COCINA_ALERTA_MIN || 15),
     anuncios_barra: aj.anuncios_barra === 'true', anuncios_carrusel: aj.anuncios_carrusel === 'true',
     despacho_activo: aj.despacho_activo === 'true', pantalla_despacho: aj.pantalla_despacho === 'true', modo_cocina: aj.modo_cocina === 'impresion' ? 'impresion' : 'pantallas',
     diario_con_inversion: aj.diario_con_inversion === 'true', alerta_espera_min: Number(aj.alerta_espera_min || 3) });
-});
+})));
 
 app.get('/api/eventos', (req, res) => {
   res.set({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
@@ -260,7 +271,7 @@ app.get('/api/eventos', (req, res) => {
   req.on('close', () => clientes.delete(res));
 });
 
-app.get('/api/menu', async (req, res) => {
+app.get('/api/menu', async (req, res) => res.json(await cacheado('menu', 5000, async () => {
   const { rows } = await q(`
     SELECT p.id, p.nombre, p.descripcion, p.precio, p.foto, p.emoji, p.agotado, p.categoria, p.orden, p.es_promo, p.promo_hasta,
            coalesce(array_agg(i.nombre ORDER BY i.nombre) FILTER (WHERE i.id IS NOT NULL), '{}') AS ingredientes,
@@ -274,8 +285,8 @@ app.get('/api/menu', async (req, res) => {
       AND (p.dias IS NULL OR cardinality(p.dias) = 0 OR extract(dow FROM now())::int = ANY(p.dias))
       AND (NOT p.es_promo OR ((p.promo_desde IS NULL OR p.promo_desde <= now()) AND (p.promo_hasta IS NULL OR p.promo_hasta >= now())))
     GROUP BY p.id ORDER BY p.es_promo DESC, p.orden, p.id`);
-  res.json(rows);
-});
+  return rows;
+})));
 
 // Crear pedido (cliente por QR, o personal desde caja). El total se calcula SIEMPRE en el servidor.
 app.post('/api/pedidos', rateLimit({ windowMs: 10 * 60 * 1000, limit: Number(process.env.LIMITE_PEDIDOS_10MIN || 120) }), async (req, res) => {

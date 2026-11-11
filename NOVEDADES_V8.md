@@ -127,3 +127,10 @@ Es el **mismo proyecto** con un interruptor: **Ajustes → Forma de trabajo de l
 Zonas, platos por zona, opciones, pedidos por QR, domicilios, caja, facturas, inventario, contabilidad y promociones funcionan igual en las dos formas. En modo comandas se ocultan las pestañas Cocina y Despacho y aparece **Comandas**.
 
 Archivo nuevo de base de datos: `db/migracion_10_comandas.sql` (se aplica sola).
+
+## 9.1 · Rendimiento (la página responde más rápido)
+- El menú del cliente se pinta de inmediato; antes esperaba una consulta de sesión que solo sirve al personal.
+- Menú, configuración y anuncios se piden **al mismo tiempo** (antes uno tras otro) y el servidor los guarda unos segundos en memoria: menos consultas a la base de datos.
+- El mapa y los códigos QR se cargan **solo cuando se usan** (antes en cada visita).
+- Menos trabajo gráfico en tablets y celulares modestos: fondo fijo sin repintado al desplazar, sin desenfoque en las ventanas, tarjetas fuera de pantalla no se dibujan.
+- Logo y librerías quedan guardados en el navegador. Índice nuevo para la lista de pedidos abiertos (`db/migracion_11_rendimiento.sql`).

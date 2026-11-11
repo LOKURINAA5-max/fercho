@@ -16,7 +16,7 @@ function gpsLoc(nm){if(!navigator.geolocation)return toast('Tu navegador no perm
   pickLoc(nm,{lat:la,lng:ln})},()=>toast('No pudimos obtener tu ubicación. Permite el acceso o márcala en el mapa',true),{enableHighAccuracy:true,timeout:12000,maximumAge:30000})}
 /* Selector genérico: pickMap(inicio, titulo, texto del botón, función(lat,lng)) */
 let _mp=null;
-function pickMap(ini,titulo,boton,cb,cancel){
+async function pickMap(ini,titulo,boton,cb,cancel){await libMapa();
  modal(`<div class="box w"><h3>${esc(titulo)}</h3><div id="mapa" style="height:min(55vh,380px);border-radius:12px;overflow:hidden;background:#222"></div><p class="mut" id="mapaTx" style="margin:6px 0">Toca el mapa o arrastra el pin hasta la puerta de la casa.</p><div class="row"><button class="btn ghost" onclick="mapaCancel()">Cancelar</button><button class="btn ghost" onclick="mapaGps()">📍 Mi ubicación</button><button class="btn grow" id="mapaOk" onclick="mapaOk()" ${ini?'':'disabled'}>${esc(boton)}</button></div></div>`);
  _mp={cb,cancel,pt:ini?{lat:ini.lat,lng:ini.lng}:null,m:null,k:null};
  if(typeof L==='undefined'){$('#mapa').innerHTML='<div class="vacio mut">No se pudo cargar el mapa. Usa «📍 Mi ubicación».</div>';return}
