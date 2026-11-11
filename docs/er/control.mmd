@@ -1,0 +1,84 @@
+---
+config:
+  layout: elk
+  theme: base
+  themeVariables:
+    fontFamily: Arial
+    fontSize: 18px
+    lineColor: "#555"
+  er:
+    fontSize: 18
+---
+erDiagram
+  direction LR
+  USUARIOS {
+    int id PK
+    varchar(40) usuario UK
+    text password_hash
+    varchar(10) rol "admin / caja / cocina"
+    int intentos_fallidos
+    timestamptz bloqueado_hasta
+    boolean activo
+    timestamptz creado_en
+    text totp_secreto
+    boolean totp_activo
+    bigint totp_ultimo_paso
+    text[] totp_recuperacion
+  }
+  ACCESOS {
+    bigint id PK
+    int usuario_id FK "NULL"
+    varchar(40) usuario_intentado
+    boolean exito
+    varchar(20) motivo
+    text ip
+    text dispositivo
+    timestamptz creado_en
+  }
+  AUDITORIA_CAJA {
+    bigint id PK
+    int turno_id FK "NULL"
+    varchar(30) evento
+    jsonb detalle
+    int usuario_id FK "NULL"
+    text ip
+    timestamptz creado_en
+  }
+  CAMBIOS_PRECIO {
+    bigint id PK
+    varchar(10) tipo
+    int ref_id
+    varchar(80) nombre
+    varchar(20) campo
+    text antes
+    text despues
+    int usuario_id FK "NULL"
+    timestamptz creado_en
+  }
+  AJUSTES {
+    varchar(40) clave PK
+    text valor
+  }
+  FOTOS {
+    int id PK
+    varchar(20) tipo
+    bytea datos
+    timestamptz creado_en
+  }
+  TURNOS_CAJA {
+    int id PK
+    timestamptz abierto_en
+  }
+  style USUARIOS fill:#dbe6ff,stroke:#2f5fb3,stroke-width:2px
+  style ACCESOS fill:#dbe6ff,stroke:#2f5fb3,stroke-width:2px
+  style AUDITORIA_CAJA fill:#dbe6ff,stroke:#2f5fb3,stroke-width:2px
+  style CAMBIOS_PRECIO fill:#dbe6ff,stroke:#2f5fb3,stroke-width:2px
+  style AJUSTES fill:#dbe6ff,stroke:#2f5fb3,stroke-width:2px
+  style FOTOS fill:#dbe6ff,stroke:#2f5fb3,stroke-width:2px
+  style TURNOS_CAJA fill:#eeeeee,stroke:#9a9a9a,stroke-dasharray:4 3
+  USUARIOS |o--o{ ACCESOS : "intenta entrar"
+  TURNOS_CAJA |o--o{ AUDITORIA_CAJA : "registra"
+  USUARIOS |o--o{ AUDITORIA_CAJA : "hace"
+  USUARIOS |o--o{ CAMBIOS_PRECIO : "cambia"
+  USUARIOS ||--o{ TURNOS_CAJA : "abre"
+  USUARIOS |o--o{ TURNOS_CAJA : "cierra"

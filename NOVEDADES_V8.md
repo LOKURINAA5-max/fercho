@@ -162,3 +162,7 @@ Archivo nuevo de base de datos: `db/migracion_10_comandas.sql` (se aplica sola).
 - Si el cliente cambia la dirección después de confirmarla, se le avisa que la busque de nuevo.
 - El domiciliario sigue llegando con Waze al punto confirmado.
 - Buscador: OpenStreetMap (gratis, máximo 1 búsqueda por segundo; cada dirección se recuerda 7 días). Opcional: variable `GOOGLE_GEOCODING_KEY` para usar Google, más preciso en Colombia.
+
+## 9.4 · Regla pedido–venta asegurada en la base de datos
+- Un pedido genera como máximo UNA venta (factura); una factura agrupa uno o varios pedidos. Ya lo garantizaba la clave foránea `pedidos.factura_id` y el cobro; ahora además: `CHECK (factura_id IS NULL OR pagado)` y el disparador `trg_pedido_factura_fija` (la factura de un pedido no se puede cambiar). Archivo: `db/migracion_13_venta_pedido.sql` (se aplica sola).
+- `docs/Fercho_modelo_ER.pdf`: modelo entidad-relación generado desde la base de datos real.

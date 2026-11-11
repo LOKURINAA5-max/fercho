@@ -1,0 +1,81 @@
+---
+config:
+  layout: elk
+  theme: base
+  themeVariables:
+    fontFamily: Arial
+    fontSize: 18px
+    lineColor: "#555"
+  er:
+    fontSize: 18
+---
+erDiagram
+  direction LR
+  PEDIDO_TAREAS {
+    bigint id PK
+    uuid pedido_id FK
+    int item_id FK "NULL"
+    int zona_id FK
+    varchar(80) nombre
+    varchar(80) origen
+    int cantidad
+    text[] sin
+    text nota
+    varchar(60) parte
+    varchar(10) estado "espera / preparando / lista"
+    timestamptz inicio_en
+    timestamptz listo_en
+  }
+  ZONAS {
+    int id PK
+    varchar(30) nombre UK
+    varchar(7) color
+    int orden
+    boolean activa
+  }
+  IMPRESIONES {
+    bigint id PK
+    uuid pedido_id FK
+    int zona_id FK
+    varchar(12) tipo
+    jsonb contenido
+    varchar(12) estado
+    int intentos
+    varchar(40) estacion
+    timestamptz creado_en
+    timestamptz tomado_en
+    timestamptz impreso_en
+  }
+  PLATO_ZONAS {
+    int plato_id PK,FK
+    int zona_id PK,FK
+    varchar(60) parte
+  }
+  PEDIDOS {
+    uuid id PK
+    int numero
+    varchar(12) estado "espera→preparacion→listo→entregado"
+  }
+  PEDIDO_ITEMS {
+    int id PK
+    uuid pedido_id FK
+    varchar(80) nombre
+  }
+  PLATOS {
+    int id PK
+    varchar(80) nombre
+  }
+  style PEDIDO_TAREAS fill:#ffd0cc,stroke:#b3261e,stroke-width:2px
+  style ZONAS fill:#ffd0cc,stroke:#b3261e,stroke-width:2px
+  style IMPRESIONES fill:#ffd0cc,stroke:#b3261e,stroke-width:2px
+  style PLATO_ZONAS fill:#ffd0cc,stroke:#b3261e,stroke-width:2px
+  style PEDIDOS fill:#eeeeee,stroke:#9a9a9a,stroke-dasharray:4 3
+  style PEDIDO_ITEMS fill:#eeeeee,stroke:#9a9a9a,stroke-dasharray:4 3
+  style PLATOS fill:#eeeeee,stroke:#9a9a9a,stroke-dasharray:4 3
+  PEDIDOS ||--o{ IMPRESIONES : "se imprime"
+  ZONAS ||--o{ IMPRESIONES : "recibe"
+  PEDIDO_ITEMS |o--o{ PEDIDO_TAREAS : "genera"
+  PEDIDOS ||--o{ PEDIDO_TAREAS : "se divide en"
+  ZONAS ||--o{ PEDIDO_TAREAS : "prepara"
+  PLATOS ||--o{ PLATO_ZONAS : "se prepara en"
+  ZONAS ||--o{ PLATO_ZONAS : "prepara"

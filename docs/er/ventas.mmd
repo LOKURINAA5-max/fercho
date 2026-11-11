@@ -1,0 +1,159 @@
+---
+config:
+  layout: elk
+  theme: base
+  themeVariables:
+    fontFamily: Arial
+    fontSize: 18px
+    lineColor: "#555"
+  er:
+    fontSize: 18
+---
+erDiagram
+  direction LR
+  PEDIDOS {
+    uuid id PK
+    int numero
+    varchar(10) tipo
+    varchar(10) mesa
+    varchar(80) cliente
+    varchar(20) telefono
+    text direccion
+    varchar(12) estado "espera→preparacion→listo→entregado"
+    numeric(12,0) total
+    varchar(10) metodo_pago
+    varchar(30) referencia_pago
+    text cancelado_motivo
+    boolean pagado
+    boolean inventario_descontado
+    timestamptz creado_en
+    timestamptz pagado_en
+    int turno_id FK "NULL"
+    boolean confirmado
+    int numero_dia
+    int turno_creacion FK "NULL"
+    numeric(12,0) efectivo_recibido
+    numeric(12,0) vueltos
+    timestamptz confirmado_en
+    timestamptz preparacion_en
+    timestamptz listo_en
+    boolean zonas_listas
+    timestamptz zonas_listas_en
+    timestamptz modificado_en
+    uuid complemento_de FK "pedido original"
+    boolean desperdicio
+    int factura_id FK "venta: nulo hasta cobrar"
+    numeric(9,6) lat
+    numeric(9,6) lng
+    numeric(6,1) distancia_km
+    varchar(200) referencia
+    numeric(12,0) costo_domicilio
+  }
+  PEDIDO_ITEMS {
+    int id PK
+    uuid pedido_id FK
+    int plato_id FK "NULL"
+    varchar(80) nombre
+    numeric(12,0) precio_unit "precio al momento de pedir"
+    int cantidad
+    text[] sin
+    text nota
+    boolean listo
+    jsonb opciones "copia de lo elegido"
+    boolean libre "cobro adicional de caja"
+  }
+  FACTURAS {
+    int id PK
+    int numero UK "consecutivo sin saltos"
+    timestamptz creada_en
+    int turno_id FK "NULL"
+    int cajero_id FK "NULL"
+    varchar(40) cajero
+    uuid[] pedido_ids "copia histórica (sin FK)"
+    int[] numeros_pedido
+    varchar(10) tipo
+    varchar(10) mesa
+    varchar(80) cliente
+    varchar(20) telefono
+    text direccion
+    jsonb items "copia inmutable"
+    numeric(12,0) total
+    varchar(10) metodo_pago
+    varchar(30) referencia_pago
+    numeric(12,0) recibido
+    numeric(12,0) vueltos
+    numeric(12,0) domicilio
+  }
+  TURNOS_CAJA {
+    int id PK
+    int abierto_por FK
+    numeric(12,0) monto_apertura
+    timestamptz abierto_en
+    text abierto_ip
+    text abierto_dispositivo
+    int cerrado_por FK "NULL"
+    timestamptz cerrado_en
+    numeric(12,0) efectivo_contado
+    numeric(12,0) ventas_efectivo
+    numeric(12,0) ventas_nequi
+    int n_pedidos
+    int n_cancelados
+    numeric(12,0) retiros
+    numeric(12,0) ingresos
+    numeric(12,0) efectivo_esperado "calculado al cerrar"
+    numeric(12,0) diferencia
+    text notas_cierre
+    boolean alerta
+  }
+  MOVIMIENTOS_CAJA {
+    bigint id PK
+    int turno_id FK
+    varchar(10) tipo
+    numeric(12,0) monto
+    text motivo
+    int usuario_id FK "NULL"
+    timestamptz creado_en
+    int gasto_id FK "NULL"
+  }
+  GASTOS {
+    int id PK
+    date fecha
+    varchar(40) categoria
+    text descripcion
+    numeric(12,0) monto
+    int usuario_id FK "NULL"
+    int turno_id FK "NULL"
+    boolean anulado
+    timestamptz creado_en
+  }
+  USUARIOS {
+    int id PK
+    varchar(40) usuario UK
+  }
+  PLATOS {
+    int id PK
+    varchar(80) nombre
+  }
+  style PEDIDOS fill:#ffe1c2,stroke:#c25a00,stroke-width:2px
+  style PEDIDO_ITEMS fill:#ffe1c2,stroke:#c25a00,stroke-width:2px
+  style FACTURAS fill:#ffe1c2,stroke:#c25a00,stroke-width:2px
+  style TURNOS_CAJA fill:#ffe1c2,stroke:#c25a00,stroke-width:2px
+  style MOVIMIENTOS_CAJA fill:#ffe1c2,stroke:#c25a00,stroke-width:2px
+  style GASTOS fill:#ffe1c2,stroke:#c25a00,stroke-width:2px
+  style USUARIOS fill:#eeeeee,stroke:#9a9a9a,stroke-dasharray:4 3
+  style PLATOS fill:#eeeeee,stroke:#9a9a9a,stroke-dasharray:4 3
+  USUARIOS |o--o{ FACTURAS : "emite"
+  TURNOS_CAJA |o--o{ FACTURAS : "emitida en"
+  TURNOS_CAJA |o--o{ GASTOS : "pagado en"
+  USUARIOS |o--o{ GASTOS : "registra"
+  GASTOS |o--o{ MOVIMIENTOS_CAJA : "origina"
+  TURNOS_CAJA ||--o{ MOVIMIENTOS_CAJA : "registra"
+  USUARIOS |o--o{ MOVIMIENTOS_CAJA : "hace"
+  PEDIDOS ||--|{ PEDIDO_ITEMS : "contiene"
+  PLATOS |o--o{ PEDIDO_ITEMS : "se pide como"
+  PEDIDOS |o--o{ PEDIDOS : "complementa"
+  FACTURAS |o--|{ PEDIDOS : "se cobra en"
+  TURNOS_CAJA |o--o{ PEDIDOS : "numerado en"
+  TURNOS_CAJA |o--o{ PEDIDOS : "cobrado en"
+  USUARIOS ||--o{ TURNOS_CAJA : "abre"
+  USUARIOS |o--o{ TURNOS_CAJA : "cierra"

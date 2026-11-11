@@ -1,0 +1,111 @@
+---
+config:
+  layout: elk
+  theme: base
+  themeVariables:
+    fontFamily: Arial
+    fontSize: 18px
+    lineColor: "#555"
+  er:
+    fontSize: 18
+---
+erDiagram
+  direction LR
+  ACCESOS
+  AJUSTES
+  ANUNCIOS
+  AUDITORIA_CAJA
+  CAMBIOS_PRECIO
+  COMPRAS_INVENTARIO
+  FACTURAS
+  FOTOS
+  GASTOS
+  IMPRESIONES
+  INSUMOS
+  MOVIMIENTOS_CAJA
+  MOVIMIENTOS_INVENTARIO
+  OPCION_GRUPOS
+  OPCION_RECETA
+  OPCIONES
+  PEDIDO_ITEMS
+  PEDIDO_TAREAS
+  PEDIDOS
+  PLATO_COMBO
+  PLATO_ZONAS
+  PLATOS
+  PRESENTACIONES
+  RECETAS
+  TURNOS_CAJA
+  USUARIOS
+  ZONAS
+  style ACCESOS fill:#dbe6ff,stroke:#2f5fb3,stroke-width:2px
+  style AJUSTES fill:#dbe6ff,stroke:#2f5fb3,stroke-width:2px
+  style ANUNCIOS fill:#fff2b3,stroke:#a67c00,stroke-width:2px
+  style AUDITORIA_CAJA fill:#dbe6ff,stroke:#2f5fb3,stroke-width:2px
+  style CAMBIOS_PRECIO fill:#dbe6ff,stroke:#2f5fb3,stroke-width:2px
+  style COMPRAS_INVENTARIO fill:#d6f0dc,stroke:#2e7d4f,stroke-width:2px
+  style FACTURAS fill:#ffe1c2,stroke:#c25a00,stroke-width:2px
+  style FOTOS fill:#dbe6ff,stroke:#2f5fb3,stroke-width:2px
+  style GASTOS fill:#ffe1c2,stroke:#c25a00,stroke-width:2px
+  style IMPRESIONES fill:#ffd0cc,stroke:#b3261e,stroke-width:2px
+  style INSUMOS fill:#d6f0dc,stroke:#2e7d4f,stroke-width:2px
+  style MOVIMIENTOS_CAJA fill:#ffe1c2,stroke:#c25a00,stroke-width:2px
+  style MOVIMIENTOS_INVENTARIO fill:#d6f0dc,stroke:#2e7d4f,stroke-width:2px
+  style OPCION_GRUPOS fill:#fff2b3,stroke:#a67c00,stroke-width:2px
+  style OPCION_RECETA fill:#fff2b3,stroke:#a67c00,stroke-width:2px
+  style OPCIONES fill:#fff2b3,stroke:#a67c00,stroke-width:2px
+  style PEDIDO_ITEMS fill:#ffe1c2,stroke:#c25a00,stroke-width:2px
+  style PEDIDO_TAREAS fill:#ffd0cc,stroke:#b3261e,stroke-width:2px
+  style PEDIDOS fill:#ffe1c2,stroke:#c25a00,stroke-width:2px
+  style PLATO_COMBO fill:#fff2b3,stroke:#a67c00,stroke-width:2px
+  style PLATO_ZONAS fill:#ffd0cc,stroke:#b3261e,stroke-width:2px
+  style PLATOS fill:#fff2b3,stroke:#a67c00,stroke-width:2px
+  style PRESENTACIONES fill:#d6f0dc,stroke:#2e7d4f,stroke-width:2px
+  style RECETAS fill:#fff2b3,stroke:#a67c00,stroke-width:2px
+  style TURNOS_CAJA fill:#ffe1c2,stroke:#c25a00,stroke-width:2px
+  style USUARIOS fill:#dbe6ff,stroke:#2f5fb3,stroke-width:2px
+  style ZONAS fill:#ffd0cc,stroke:#b3261e,stroke-width:2px
+  USUARIOS |o--o{ ACCESOS : "intenta entrar"
+  PLATOS |o--o{ ANUNCIOS : "promociona"
+  TURNOS_CAJA |o--o{ AUDITORIA_CAJA : "registra"
+  USUARIOS |o--o{ AUDITORIA_CAJA : "hace"
+  USUARIOS |o--o{ CAMBIOS_PRECIO : "cambia"
+  INSUMOS ||--o{ COMPRAS_INVENTARIO : "se compra"
+  TURNOS_CAJA |o--o{ COMPRAS_INVENTARIO : "pagada en"
+  USUARIOS |o--o{ COMPRAS_INVENTARIO : "registra"
+  USUARIOS |o--o{ FACTURAS : "emite"
+  TURNOS_CAJA |o--o{ FACTURAS : "emitida en"
+  TURNOS_CAJA |o--o{ GASTOS : "pagado en"
+  USUARIOS |o--o{ GASTOS : "registra"
+  PEDIDOS ||--o{ IMPRESIONES : "se imprime"
+  ZONAS ||--o{ IMPRESIONES : "recibe"
+  GASTOS |o--o{ MOVIMIENTOS_CAJA : "origina"
+  TURNOS_CAJA ||--o{ MOVIMIENTOS_CAJA : "registra"
+  USUARIOS |o--o{ MOVIMIENTOS_CAJA : "hace"
+  COMPRAS_INVENTARIO |o--o{ MOVIMIENTOS_INVENTARIO : "ingresa"
+  INSUMOS ||--o{ MOVIMIENTOS_INVENTARIO : "mueve"
+  PEDIDOS |o--o{ MOVIMIENTOS_INVENTARIO : "descuenta"
+  USUARIOS |o--o{ MOVIMIENTOS_INVENTARIO : "registra"
+  PLATOS ||--o{ OPCION_GRUPOS : "ofrece"
+  INSUMOS ||--o{ OPCION_RECETA : "usado en"
+  OPCIONES ||--o{ OPCION_RECETA : "consume"
+  OPCION_GRUPOS ||--|{ OPCIONES : "agrupa"
+  ZONAS |o--o{ OPCIONES : "prepara"
+  PEDIDOS ||--|{ PEDIDO_ITEMS : "contiene"
+  PLATOS |o--o{ PEDIDO_ITEMS : "se pide como"
+  PEDIDO_ITEMS |o--o{ PEDIDO_TAREAS : "genera"
+  PEDIDOS ||--o{ PEDIDO_TAREAS : "se divide en"
+  ZONAS ||--o{ PEDIDO_TAREAS : "prepara"
+  PEDIDOS |o--o{ PEDIDOS : "complementa"
+  FACTURAS |o--|{ PEDIDOS : "se cobra en"
+  TURNOS_CAJA |o--o{ PEDIDOS : "numerado en"
+  TURNOS_CAJA |o--o{ PEDIDOS : "cobrado en"
+  PLATOS ||--o{ PLATO_COMBO : "incluido en"
+  PLATOS ||--o{ PLATO_COMBO : "promo contiene"
+  PLATOS ||--o{ PLATO_ZONAS : "se prepara en"
+  ZONAS ||--o{ PLATO_ZONAS : "prepara"
+  INSUMOS ||--o{ PRESENTACIONES : "viene en"
+  INSUMOS ||--o{ RECETAS : "usado en"
+  PLATOS ||--o{ RECETAS : "lleva"
+  USUARIOS ||--o{ TURNOS_CAJA : "abre"
+  USUARIOS |o--o{ TURNOS_CAJA : "cierra"

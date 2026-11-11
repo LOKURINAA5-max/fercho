@@ -1,0 +1,100 @@
+---
+config:
+  layout: elk
+  theme: base
+  themeVariables:
+    fontFamily: Arial
+    fontSize: 18px
+    lineColor: "#555"
+  er:
+    fontSize: 18
+---
+erDiagram
+  direction LR
+  PLATOS {
+    int id PK
+    varchar(80) nombre
+    text descripcion
+    numeric(12,0) precio
+    text foto "URL /foto/:id"
+    varchar(8) emoji
+    boolean agotado
+    boolean activo
+    varchar(40) categoria
+    int orden
+    boolean es_promo
+    timestamptz promo_desde
+    timestamptz promo_hasta
+    smallint[] dias
+  }
+  OPCION_GRUPOS {
+    int id PK
+    int plato_id FK
+    varchar(40) nombre
+    boolean obligatorio
+    boolean multiple
+    int orden
+  }
+  OPCIONES {
+    int id PK
+    int grupo_id FK
+    varchar(60) nombre
+    numeric(12,0) precio_extra "se suma al plato"
+    int zona_id FK "NULL"
+    int orden
+  }
+  OPCION_RECETA {
+    int opcion_id PK,FK
+    int insumo_id PK,FK
+    numeric(12,2) cantidad "por unidad"
+  }
+  RECETAS {
+    int plato_id PK,FK
+    int insumo_id PK,FK
+    numeric(10,2) cantidad "por porción, unidad base"
+  }
+  PLATO_COMBO {
+    int promo_id PK,FK
+    int plato_id PK,FK
+    int cantidad
+  }
+  ANUNCIOS {
+    int id PK
+    varchar(80) titulo
+    varchar(160) texto
+    text foto
+    int plato_id FK "NULL"
+    boolean activo
+    int orden
+    timestamptz desde
+    timestamptz hasta
+    timestamptz creado_en
+  }
+  INSUMOS {
+    int id PK
+    varchar(80) nombre
+    varchar(15) unidad "g / ml / u"
+  }
+  ZONAS {
+    int id PK
+    varchar(30) nombre UK
+  }
+  style PLATOS fill:#fff2b3,stroke:#a67c00,stroke-width:2px
+  style OPCION_GRUPOS fill:#fff2b3,stroke:#a67c00,stroke-width:2px
+  style OPCIONES fill:#fff2b3,stroke:#a67c00,stroke-width:2px
+  style OPCION_RECETA fill:#fff2b3,stroke:#a67c00,stroke-width:2px
+  style RECETAS fill:#fff2b3,stroke:#a67c00,stroke-width:2px
+  style PLATO_COMBO fill:#fff2b3,stroke:#a67c00,stroke-width:2px
+  style ANUNCIOS fill:#fff2b3,stroke:#a67c00,stroke-width:2px
+  style INSUMOS fill:#eeeeee,stroke:#9a9a9a,stroke-dasharray:4 3
+  style ZONAS fill:#eeeeee,stroke:#9a9a9a,stroke-dasharray:4 3
+  PLATOS |o--o{ ANUNCIOS : "promociona"
+  PLATOS ||--o{ OPCION_GRUPOS : "ofrece"
+  INSUMOS ||--o{ OPCION_RECETA : "usado en"
+  OPCIONES ||--o{ OPCION_RECETA : "consume"
+  OPCION_GRUPOS ||--|{ OPCIONES : "agrupa"
+  ZONAS |o--o{ OPCIONES : "prepara"
+  PLATOS ||--o{ PLATO_COMBO : "incluido en"
+  PLATOS ||--o{ PLATO_COMBO : "promo contiene"
+  INSUMOS ||--o{ RECETAS : "usado en"
+  PLATOS ||--o{ RECETAS : "lleva"

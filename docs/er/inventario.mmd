@@ -1,0 +1,99 @@
+---
+config:
+  layout: elk
+  theme: base
+  themeVariables:
+    fontFamily: Arial
+    fontSize: 18px
+    lineColor: "#555"
+  er:
+    fontSize: 18
+---
+erDiagram
+  direction LR
+  INSUMOS {
+    int id PK
+    varchar(30) codigo UK
+    varchar(80) nombre
+    numeric(12,2) cantidad "existencia en unidad base"
+    varchar(15) unidad "g / ml / u"
+    text foto
+    boolean activo
+    numeric(14,4) costo_unitario
+    numeric(5,2) merma_pct "% que se pierde al limpiar"
+    numeric(12,2) peso_unidad
+  }
+  PRESENTACIONES {
+    int id PK
+    int insumo_id FK
+    varchar(40) nombre
+    numeric(12,2) cantidad_base
+    boolean activa
+  }
+  COMPRAS_INVENTARIO {
+    int id PK
+    date fecha
+    int insumo_id FK
+    varchar(40) presentacion
+    numeric(12,2) cant_presentacion
+    numeric(12,2) cantidad_base
+    numeric(12,0) costo_total "gasto de inversión"
+    varchar(80) proveedor
+    varchar(10) pagado_con
+    int usuario_id FK "NULL"
+    int turno_id FK "NULL"
+    boolean anulada
+    timestamptz creada_en
+  }
+  MOVIMIENTOS_INVENTARIO {
+    bigint id PK
+    int insumo_id FK
+    varchar(10) tipo
+    numeric(12,2) cantidad
+    text motivo
+    uuid pedido_id FK "NULL"
+    int usuario_id FK "NULL"
+    timestamptz creado_en
+    numeric(12,2) delta "+ entra / − sale"
+    int compra_id FK "NULL"
+  }
+  RECETAS {
+    int plato_id PK,FK
+    int insumo_id PK,FK
+    numeric(10,2) cantidad "por porción, unidad base"
+  }
+  OPCION_RECETA {
+    int opcion_id PK,FK
+    int insumo_id PK,FK
+    numeric(12,2) cantidad "por unidad"
+  }
+  PEDIDOS {
+    uuid id PK
+    int numero
+  }
+  USUARIOS {
+    int id PK
+    varchar(40) usuario UK
+  }
+  TURNOS_CAJA {
+    int id PK
+  }
+  style INSUMOS fill:#d6f0dc,stroke:#2e7d4f,stroke-width:2px
+  style PRESENTACIONES fill:#d6f0dc,stroke:#2e7d4f,stroke-width:2px
+  style COMPRAS_INVENTARIO fill:#d6f0dc,stroke:#2e7d4f,stroke-width:2px
+  style MOVIMIENTOS_INVENTARIO fill:#d6f0dc,stroke:#2e7d4f,stroke-width:2px
+  style RECETAS fill:#eeeeee,stroke:#9a9a9a,stroke-dasharray:4 3
+  style OPCION_RECETA fill:#eeeeee,stroke:#9a9a9a,stroke-dasharray:4 3
+  style PEDIDOS fill:#eeeeee,stroke:#9a9a9a,stroke-dasharray:4 3
+  style USUARIOS fill:#eeeeee,stroke:#9a9a9a,stroke-dasharray:4 3
+  style TURNOS_CAJA fill:#eeeeee,stroke:#9a9a9a,stroke-dasharray:4 3
+  INSUMOS ||--o{ COMPRAS_INVENTARIO : "se compra"
+  TURNOS_CAJA |o--o{ COMPRAS_INVENTARIO : "pagada en"
+  USUARIOS |o--o{ COMPRAS_INVENTARIO : "registra"
+  COMPRAS_INVENTARIO |o--o{ MOVIMIENTOS_INVENTARIO : "ingresa"
+  INSUMOS ||--o{ MOVIMIENTOS_INVENTARIO : "mueve"
+  PEDIDOS |o--o{ MOVIMIENTOS_INVENTARIO : "descuenta"
+  USUARIOS |o--o{ MOVIMIENTOS_INVENTARIO : "registra"
+  INSUMOS ||--o{ OPCION_RECETA : "usado en"
+  INSUMOS ||--o{ PRESENTACIONES : "viene en"
+  INSUMOS ||--o{ RECETAS : "usado en"
