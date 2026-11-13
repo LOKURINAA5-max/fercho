@@ -9,23 +9,23 @@ GitHub (código)  ──── conecta ────▶  Render (servidor)  ─�
 
 ## Antes de empezar
 - Cuenta en **github.com**, **neon.com** y **render.com** (puedes entrar con GitHub en las tres).
-- Descomprime `fercho-beta-v7.3.zip` y ubica la carpeta `fercho-backend` (la que contiene `package.json`, `src`, `db`, `public`, `render.yaml`).
+- Descomprime `pinchos17-beta-v7.3.zip` y ubica la carpeta `pinchos17-backend` (la que contiene `package.json`, `src`, `db`, `public`, `render.yaml`).
 - Dentro de esa carpeta **no debe existir** un archivo `.env` ni la carpeta `node_modules`. (El `.gitignore` ya los protege.)
 - Anota en papel: usuario y clave de administrador que quieras usar (la clave: mínimo 10 caracteres, con letras y números).
 
 ---
 
 ## Paso 1 · Subir el proyecto a GitHub
-1. En GitHub: **New repository** → nombre `fercho` → **Public** si la profesora lo va a abrir sin cuenta, o **Private** y le das acceso desde *Settings → Collaborators* → Create.
+1. En GitHub: **New repository** → nombre `pinchos17` → **Public** si la profesora lo va a abrir sin cuenta, o **Private** y le das acceso desde *Settings → Collaborators* → Create.
 2. En la página del repositorio vacío pulsa **uploading an existing file**.
-3. Arrastra **el contenido** de `fercho-backend` (las carpetas `src`, `db`, `public`, `scripts`, `docs` y los archivos sueltos como `package.json`, `render.yaml`, `README.md`), **no** la carpeta `fercho-backend` completa.
+3. Arrastra **el contenido** de `pinchos17-backend` (las carpetas `src`, `db`, `public`, `scripts`, `docs` y los archivos sueltos como `package.json`, `render.yaml`, `README.md`), **no** la carpeta `pinchos17-backend` completa.
 4. Pulsa **Commit changes**.
 5. Comprueba que en la raíz del repositorio se vean `package.json` y `render.yaml`, y que **no** aparezca `.env`.
 
 > Nunca subas el archivo `.env`: contiene claves.
 
 ## Paso 2 · Crear la base de datos en Neon
-1. En Neon: **Create project**. Nombre `fercho`. Elige la versión más reciente de PostgreSQL y una región cercana a Colombia (por ejemplo **AWS US East (N. Virginia)**).
+1. En Neon: **Create project**. Nombre `pinchos17`. Elige la versión más reciente de PostgreSQL y una región cercana a Colombia (por ejemplo **AWS US East (N. Virginia)**).
 2. Cuando se cree, pulsa **Connect** (arriba a la derecha).
 3. En la ventana, **desactiva** la opción **Connection pooling** (así obtienes la conexión directa).
 4. Copia la cadena que aparece. Se parece a:
@@ -40,7 +40,7 @@ No crees tablas a mano: el sistema las crea solo la primera vez que arranca.
 ## Paso 3 · Crear el servidor en Render
 **Opción A (recomendada): con el archivo `render.yaml`**
 1. En Render: **New +** → **Blueprint**.
-2. Conecta tu cuenta de GitHub y elige el repositorio `fercho`.
+2. Conecta tu cuenta de GitHub y elige el repositorio `pinchos17`.
 3. Render lee `render.yaml` y te pide los valores que no están en el archivo:
    - `DATABASE_URL`: pega la cadena de Neon del paso 2.
    - `ADMIN_USUARIO`: por ejemplo `juan` (solo minúsculas y números).
@@ -70,9 +70,9 @@ No crees tablas a mano: el sistema las crea solo la primera vez que arranca.
    - `[arranque] Base de datos vacía: creando las tablas...`
    - `[arranque] Menú de ejemplo cargado`
    - `[arranque] Administrador "juan" creado`
-   - `Fercho API lista en el puerto ...`
-2. Abre la dirección `https://fercho-xxxx.onrender.com` que muestra Render. Debe cargar el menú (aparecerá **Cerrado** hasta que se abra la caja).
-3. Prueba `https://fercho-xxxx.onrender.com/api/salud`: debe responder `{"estado":"ok"}` (esta consulta sí toca la base: úsala a mano, no para monitoreo automático en Neon gratis).
+   - `Pinchos la 17 API lista en el puerto ...`
+2. Abre la dirección `https://pinchos17-xxxx.onrender.com` que muestra Render. Debe cargar el menú (aparecerá **Cerrado** hasta que se abra la caja).
+3. Prueba `https://pinchos17-xxxx.onrender.com/api/salud`: debe responder `{"estado":"ok"}` (esta consulta sí toca la base: úsala a mano, no para monitoreo automático en Neon gratis).
 
 ## Paso 5 · Primer ingreso y seguridad
 1. Pulsa **Personal** e ingresa con tu usuario y `ADMIN_CLAVE`.

@@ -5,15 +5,15 @@ services:
     image: postgres:16
     restart: unless-stopped
     environment:
-      POSTGRES_USER: fercho_admin
+      POSTGRES_USER: p17_admin
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Define POSTGRES_PASSWORD en .env}
-      POSTGRES_DB: fercho
+      POSTGRES_DB: pinchos17
     volumes:
       - dbdata:/var/lib/postgresql/data
       - ./db/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro   # solo se ejecutan la primera vez
       - ./db/seed.sql:/docker-entrypoint-initdb.d/02_seed.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U fercho_admin -d fercho"]
+      test: ["CMD-SHELL", "pg_isready -U p17_admin -d pinchos17"]
       interval: 10s
       timeout: 5s
       retries: 10

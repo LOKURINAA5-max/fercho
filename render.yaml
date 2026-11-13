@@ -2,7 +2,7 @@
 # La base de datos NO se crea aquí: está en Neon (pega su DATABASE_URL cuando Render la pida).
 services:
   - type: web
-    name: fercho
+    name: pinchos17
     runtime: node
     plan: free                      # para producción real cámbialo a un plan de pago (el gratuito se duerme)
     buildCommand: npm install

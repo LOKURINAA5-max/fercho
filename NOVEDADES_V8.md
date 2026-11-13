@@ -4,7 +4,7 @@
 1. Hazlo **fuera del horario de atención**, con la caja **cerrada** y sin pedidos pendientes.
 2. Sube a GitHub los archivos de este paquete (reemplazan a los anteriores; **no subas `.env` ni claves**).
 3. Render se actualiza solo y aplica la migración de la base (`db/migracion_06_v8.sql`) una sola vez.
-4. Entra como administrador → **Carta** → botón **«Cargar la carta de Fercho»**. Te pregunta si quitas los platos de ejemplo. Aceptar = deja solo la carta real (120 productos, promociones y almuerzos de fin de semana).
+4. Entra como administrador → **Carta** → botón **«Cargar la carta de Pinchos la 17»**. Te pregunta si quitas los platos de ejemplo. Aceptar = deja solo la carta real (120 productos, promociones y almuerzos de fin de semana).
 5. Revisa en **Carta → Detalles** las zonas de cada plato y en **Inventario** carga insumos, presentaciones y recetas en gramos.
 
 ## Cocina por zonas
@@ -96,7 +96,7 @@ Igual que la versión 8: subir archivos a GitHub; Render aplica sola `db/migraci
 - Cada opción puede tener su **zona de cocina** (las papas a la francesa de un pincho le salen a la Plancha) y sus **insumos** (descuenta inventario solo cuando se pide).
 - La opción elegida aparece en el pedido, la cocina, la comanda, la factura y los más vendidos. Los cambios de precio de las opciones quedan en la bitácora.
 - Se administra en **Carta → botón «Opciones»** de cualquier plato, nuevo o existente. «Copiar las opciones de otro plato» ahorra trabajo.
-- **Carta de Fercho**: con/sin papa (hamburguesas, perros, desgranados), guarnición de los pinchos y tamaño de naranjadas y Hit personal ahora son UN plato con opciones (102 productos en vez de 120). Si ya la habías cargado, vuelve a pulsar «Cargar la carta de Fercho» aceptando reemplazar.
+- **Carta de Pinchos la 17**: con/sin papa (hamburguesas, perros, desgranados), guarnición de los pinchos y tamaño de naranjadas y Hit personal ahora son UN plato con opciones (102 productos en vez de 120). Si ya la habías cargado, vuelve a pulsar «Cargar la carta de Pinchos la 17» aceptando reemplazar.
 - Archivo nuevo de base de datos: `db/migracion_08_opciones.sql` (se aplica sola).
 
 ## 8.6 · Otro cobro (algo que no está en la carta)
@@ -144,7 +144,7 @@ Archivo nuevo de base de datos: `db/migracion_10_comandas.sql` (se aplica sola).
 ## Dejar el sistema en limpio (antes del video o de abrir al público)
 `db/limpiar-pruebas.sql`: se pega en Neon → SQL Editor. Borra pedidos, facturas, turnos, gastos, compras e historiales de prueba; conserva usuarios, carta, opciones, insumos, zonas, anuncios y ajustes. Pedidos y facturas vuelven a empezar en 1. Opcional: poner el stock de los insumos en 0.
 
-## 9.2.1 · «Cargar la carta de Fercho» arreglado
+## 9.2.1 · «Cargar la carta de Pinchos la 17» arreglado
 - La carga hacía unas 330 consultas una tras otra; con el servidor y la base en lugares distintos (Render + Neon) tardaba tanto que parecía no funcionar. Ahora son unas 7 consultas grandes: carga en segundos.
 - Se abre una ventana propia con dos botones (quitar lo actual o solo agregar) y un aviso de «Cargando…» mientras trabaja. Un segundo clic no lanza otra carga encima.
 
@@ -165,4 +165,4 @@ Archivo nuevo de base de datos: `db/migracion_10_comandas.sql` (se aplica sola).
 
 ## 9.4 · Regla pedido–venta asegurada en la base de datos
 - Un pedido genera como máximo UNA venta (factura); una factura agrupa uno o varios pedidos. Ya lo garantizaba la clave foránea `pedidos.factura_id` y el cobro; ahora además: `CHECK (factura_id IS NULL OR pagado)` y el disparador `trg_pedido_factura_fija` (la factura de un pedido no se puede cambiar). Archivo: `db/migracion_13_venta_pedido.sql` (se aplica sola).
-- `docs/Fercho_modelo_ER.pdf`: modelo entidad-relación generado desde la base de datos real.
+- `docs/Pinchos la 17_modelo_ER.pdf`: modelo entidad-relación generado desde la base de datos real.
