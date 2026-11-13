@@ -1,4 +1,4 @@
-# Guía de despliegue · Pinchos la 17
+# Guía de despliegue · Fercho
 
 Dos caminos. Elige uno:
 
@@ -26,7 +26,7 @@ Dos caminos. Elige uno:
    DOMINIO=pedidos.tunegocio.com
    POSTGRES_PASSWORD=<clave larga aleatoria>
    JWT_SECRET=<48 bytes hex: openssl rand -hex 48>
-   DATABASE_URL=postgres://pinchos17_admin:<la misma clave>@db:5432/pinchos17
+   DATABASE_URL=postgres://fercho_admin:<la misma clave>@db:5432/fercho
    EXIGIR_2FA=admin
    NEQUI_NUMERO=...   NEQUI_NOMBRE=...   (si usarás Nequi)
    ```
@@ -37,9 +37,9 @@ Dos caminos. Elige uno:
    ```
 7. **Usuario de base de datos con permisos mínimos** (importante):
    ```bash
-   docker compose run --rm -e DATABASE_URL_ADMIN="postgres://pinchos17_admin:<clave>@db:5432/pinchos17" app node scripts/crear-usuario-bd.js
+   docker compose run --rm -e DATABASE_URL_ADMIN="postgres://fercho_admin:<clave>@db:5432/fercho" app node scripts/crear-usuario-bd.js
    ```
-   Copia la línea `DATABASE_URL=...pinchos17_app...` que imprime, reemplaza la `DATABASE_URL` del `.env`, deja la de administrador
+   Copia la línea `DATABASE_URL=...fercho_app...` que imprime, reemplaza la `DATABASE_URL` del `.env`, deja la de administrador
    como `DATABASE_URL_ADMIN` y reinicia: `docker compose up -d`.
 8. Abre `https://tu-dominio`, entra como admin y **activa la verificación en dos pasos** (te la pedirá).
 9. Crea los usuarios de caja y cocina en "Usuarios", carga tu menú real, el stock inicial y genera los QR **desde el dominio definitivo**.
@@ -47,7 +47,7 @@ Dos caminos. Elige uno:
 **Actualizar:** sube los archivos nuevos y `docker compose up -d --build`. Si hay migraciones nuevas:
 `docker compose run --rm -e DATABASE_URL_ADMIN=... app node scripts/migrar.js db/migracion_XX.sql`.
 
-**Copias de seguridad:** `docker compose exec -T db pg_dump -U pinchos17_admin -Fc pinchos17 > backups/pinchos17_$(date +%F).dump`
+**Copias de seguridad:** `docker compose exec -T db pg_dump -U fercho_admin -Fc fercho > backups/fercho_$(date +%F).dump`
 (prográmalo con `crontab -e` cada noche y copia el archivo FUERA del servidor).
 
 ---
@@ -80,7 +80,7 @@ Todas están documentadas dentro de `.env.example`.
 ## Lista de verificación antes de lanzar
 - [ ] HTTPS funcionando y `NODE_ENV=production`
 - [ ] `JWT_SECRET` aleatorio de 48+ bytes, y el `.env` NO está en GitHub
-- [ ] El servidor usa el usuario `pinchos17_app` (no `postgres`/administrador)
+- [ ] El servidor usa el usuario `fercho_app` (no `postgres`/administrador)
 - [ ] La base de datos NO es accesible desde internet
 - [ ] Verificación en dos pasos activa en el administrador (y códigos de recuperación guardados en papel)
 - [ ] Contraseñas reales para caja y cocina (una cuenta por persona); cuentas de prueba desactivadas

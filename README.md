@@ -1,10 +1,8 @@
-> **Pinchos la 17:** lee primero `INSTALAR_PINCHOS17.md`.
-
 > **Versión 8:** lee `NOVEDADES_V8.md` (zonas de cocina, facturas, inversión, nuevo diseño y cómo actualizar).
 
-# Pinchos la 17 · Sistema de pedidos, caja, cocina y contabilidad
+# Fercho · Sistema de pedidos, caja, cocina y contabilidad
 
-Sistema web para el restaurante **Pinchos la 17**: los clientes piden desde el celular escaneando un QR
+Sistema web para el restaurante **Hamburguesas y Pinchos Fercho**: los clientes piden desde el celular escaneando un QR
 (en mesa o a domicilio), caja cobra en pesos colombianos con cálculo de vueltos, la cocina ve los pedidos con cronómetro,
 y el administrador controla inventario, contabilidad (diaria, mensual y anual) y un recomendador anti-desperdicio.
 
@@ -38,7 +36,7 @@ Requisitos: Node 20.6+ (recomendado 22) y PostgreSQL 13+.
 ```bash
 npm install
 cp .env.example .env     # edita DATABASE_URL, JWT_SECRET, ADMIN_USUARIO y ADMIN_CLAVE
-createdb pinchos17          # o crea la base vacía "pinchos17" desde pgAdmin
+createdb fercho          # o crea la base vacía "fercho" desde pgAdmin
 npm start                # http://localhost:3000
 ```
 Con la base vacía, el sistema crea **solo** las tablas, el menú de ejemplo y el primer administrador al arrancar.

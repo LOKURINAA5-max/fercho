@@ -1,4 +1,4 @@
-# Despliegue paso a paso · Pinchos la 17
+# Despliegue paso a paso · Fercho
 
 Ruta recomendada para tu primer lanzamiento: **GitHub + Render (servicio web + base PostgreSQL) + dominio**.
 
@@ -15,18 +15,18 @@ No necesitas terminal en el servidor: el sistema crea las tablas y tu administra
 - [ ] Un **gestor de claves** o un papel guardado: aquí anotarás contraseñas y códigos de recuperación
 
 ## Fase 1 · Subir el proyecto a GitHub
-1. En GitHub: **New repository** → nombre `pinchos17` → **Private** → *Create*.
-2. Descomprime `pinchos17-beta-v7.zip`. Verifica que dentro de `pinchos17-backend` **NO** exista un archivo `.env`.
-3. En la página del repositorio vacío, pulsa **uploading an existing file** y arrastra **el contenido** de `pinchos17-backend`
+1. En GitHub: **New repository** → nombre `fercho` → **Private** → *Create*.
+2. Descomprime `fercho-beta-v7.zip`. Verifica que dentro de `fercho-backend` **NO** exista un archivo `.env`.
+3. En la página del repositorio vacío, pulsa **uploading an existing file** y arrastra **el contenido** de `fercho-backend`
    (no la carpeta). Confirma que se vean `src`, `db`, `public`, `package.json`… → **Commit changes**.
 
 ## Fase 2 · Crear la base de datos en Render
-1. Render → **New +** → **PostgreSQL**. Nombre `pinchos17-db`, región cercana a Colombia (la más próxima disponible).
+1. Render → **New +** → **PostgreSQL**. Nombre `fercho-db`, región cercana a Colombia (la más próxima disponible).
 2. Elige el plan. Un plan de pago con copias automáticas es lo recomendable para clientes reales; el gratuito sirve solo para probar.
 3. *Create Database*. Cuando esté lista, copia **Internal Database URL** (la usarás en la Fase 3).
 
 ## Fase 3 · Crear el servicio web
-1. Render → **New +** → **Web Service** → conecta tu repositorio `pinchos17`.
+1. Render → **New +** → **Web Service** → conecta tu repositorio `fercho`.
 2. Configura:
    - **Runtime:** Node · **Build Command:** `npm install` · **Start Command:** `node src/server.js`
    - **Health Check Path:** `/api/salud`
@@ -47,10 +47,10 @@ No necesitas terminal en el servidor: el sistema crea las tablas y tu administra
 
 4. **Fotos:** desde la v7.2 se guardan dentro de la base de datos, así que **no necesitas disco ni `UPLOADS_DIR`**.
 5. **Create Web Service**. En *Logs* debes ver `[arranque] Base de datos vacía: creando las tablas...`,
-   `Administrador "dueno" creado` y `Pinchos la 17 API lista`.
+   `Administrador "dueno" creado` y `Fercho API lista`.
 
 ## Fase 4 · Primer ingreso y seguridad
-1. Abre la URL que te da Render (`https://pinchos17-xxxx.onrender.com`). Entra con **Personal** → tu usuario y `ADMIN_CLAVE`.
+1. Abre la URL que te da Render (`https://fercho-xxxx.onrender.com`). Entra con **Personal** → tu usuario y `ADMIN_CLAVE`.
 2. El sistema te obliga a **activar la verificación en dos pasos**: escanea el QR con tu app y escribe el código.
    **Anota los 8 códigos de recuperación en papel.** No se vuelven a mostrar.
 3. Vuelve a Render → Environment → **borra `ADMIN_CLAVE`** y guarda (se reinicia solo). Luego cambia tu clave en el botón 🔑.
